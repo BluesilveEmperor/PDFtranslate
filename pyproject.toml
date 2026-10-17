@@ -12,6 +12,7 @@ classifiers = [
 ]
 dependencies = [
     "requests",
+    "bitstring<4",  # babeldoc 等依赖需要 BitStream（bitstring 4.x 已移除）
     # for arm64 linux whells
     "pymupdf<1.25.3",
     "tqdm",
