@@ -178,3 +178,8 @@ cython_debug/
 uv.lock
 *.pdf
 *.docx
+# IDE / tool / temp
+.arts/
+.deveco/
+.gradio/
+*.zip
