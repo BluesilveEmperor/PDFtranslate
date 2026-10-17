@@ -391,9 +391,18 @@ class TranslateConverter(PDFConverterEx):
             text = "".join(ch.get_text() for ch in v)
             log.debug(f'< {l:.1f} {v[0].x0:.1f} {v[0].y0:.1f} {v[0].cid} {v[0].fontname} {len(varl[id])} > v{id} = {text}')
             vlen.append(l)
+            # Distinguish real prose from math formulas to reduce false warnings.
+            # Formulas typically contain CID markers, partial-derivative symbols,
+            # or a high density of math operators; prose has longer words (3+).
+            _math_ops = sum(
+                text.count(c)
+                for c in ("=", "+", "−", "-", "{", "}", "∂", "ϕ", "∑", "∫", "∏")
+            )
             if (
                 len(text) > 40
-                and len(re.findall(r"[A-Za-z]{2,}", text)) >= 6
+                and "(cid:" not in text
+                and _math_ops < 3
+                and len(re.findall(r"[A-Za-z]{3,}", text)) >= 6
                 and sum(c.isalpha() or c.isspace() for c in text) / len(text) > 0.5
             ):
                 prose_warned += 1
