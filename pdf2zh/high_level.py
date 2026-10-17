@@ -146,7 +146,7 @@ def translate_patch(
             inf.seek(0)
     pending_pages = []
     with (
-        tqdm.tqdm(total=total_pages, force=True, mininterval=0) as progress,
+        tqdm.tqdm(total=total_pages, mininterval=0, disable=False, dynamic_ncols=True) as progress,
         ThreadPoolExecutor(max_workers=thread) if ultrafast else nullcontext() as pool,
     ):
         if ultrafast:
