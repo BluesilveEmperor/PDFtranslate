@@ -1,3 +1,11 @@
+# 兼容 babeldoc：bitstring 4.x/5.x 移除了 BitStream，babeldoc 仍 import 它
+try:
+    from bitstring import BitStream  # noqa: F401
+except ImportError:
+    from bitstring import BitArray
+    import bitstring
+    bitstring.BitStream = BitArray
+
 import logging
 
 log = logging.getLogger(__name__)
