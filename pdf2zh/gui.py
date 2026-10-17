@@ -1,6 +1,9 @@
+import sys
+import os
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 import cgi
-import os
 import shutil
 import socket
 import threading
@@ -918,11 +921,9 @@ def setup_gui(
     # Try binding addresses in order: "::" accepts both IPv4+IPv6 on most
     # dual-stack systems, "0.0.0.0" is IPv4-only, "127.0.0.1" is loopback,
     # and finally fall back to Gradio's share mode.
-    bind_addresses = []
+    bind_addresses = ["0.0.0.0", "127.0.0.1"]
     if _has_ipv6():
         bind_addresses.append("[::]")
-    bind_addresses.append("0.0.0.0")
-    bind_addresses.append("127.0.0.1")
 
     threading.Thread(
         target=open_browser_when_ready, args=(server_port,), daemon=True
