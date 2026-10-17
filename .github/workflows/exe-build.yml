@@ -86,6 +86,16 @@ jobs:
           Write-Host "==== 在 venv 环境中安装项目依赖 ===="
           uv pip install .
 
+          Write-Host "==== 写 BitStream 兼容层 (sitecustomize.py) ===="
+          @'
+try:
+    from bitstring import BitStream
+except ImportError:
+    from bitstring import BitArray
+    import bitstring
+    bitstring.BitStream = BitArray
+'@ | Set-Content -Path "./dep_build/venv/Lib/site-packages/sitecustomize.py" -Encoding utf8
+
           Write-Host "==== 复制 venv/Lib/site-packages 到 build/ ===="
           Copy-Item -Path "./dep_build/venv/Lib/site-packages" -Destination "./build/site-packages" -Recurse -Force
 
