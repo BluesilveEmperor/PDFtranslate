@@ -27,6 +27,7 @@ jobs:
 
       - name: 安装项目依赖
         run: |
+          uv venv
           uv pip install .
 
       - name: 安装 PyInstaller
