@@ -18,6 +18,37 @@ from pdf2zh.converter_docx import convert_to_pdf, is_convertible
 logger = logging.getLogger(__name__)
 
 
+def _redact_url(url: str) -> str:
+    """脱敏 URL 中的用户名/密码凭据，如 http://user:pass@host → http://***@host。"""
+    scheme_end = url.find("://")
+    if scheme_end != -1:
+        at = url.find("@", scheme_end + 3)
+        if at != -1:
+            return url[: scheme_end + 3] + "***" + url[at:]
+    return url
+
+
+def warn_proxy_env() -> None:
+    found = {
+        k: _redact_url(os.environ[k])
+        for k in (
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        )
+        if k in os.environ
+    }
+    if found:
+        logger.warning("Proxy environment variables detected: %s", found)
+        logger.warning(
+            "If your VPN/proxy is OFF, all requests (including domestic APIs) "
+            "will fail. Clear these variables or set NO_PROXY for your API domains."
+        )
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, add_help=True)
     parser.add_argument(
@@ -160,6 +191,21 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parse_params.add_argument(
+        "--conf",
+        type=float,
+        default=0.25,
+        help="DocLayout-YOLO detection confidence threshold.",
+    )
+
+    parse_params.add_argument(
+        "--reserved-classes",
+        type=str,
+        default="abandon,figure,table,isolate_formula,formula_caption",
+        help="Layout classes protected from translation, comma-separated. "
+        "Remove entries to translate misdetected regions.",
+    )
+
+    parse_params.add_argument(
         "--serverport",
         type=int,
         help="custom WebUI port.",
@@ -293,6 +339,8 @@ def main(args: Optional[List[str]] = None) -> int:
     logging.getLogger("http11").setLevel("CRITICAL")
     logging.getLogger("http11").propagate = False
 
+    warn_proxy_env()
+
     if parsed_args.config:
         from pdf2zh.config import ConfigManager
 
@@ -396,6 +444,8 @@ def main(args: Optional[List[str]] = None) -> int:
         compatible=parsed_args.compatible,
         debug=parsed_args.debug,
         ultrafast=parsed_args.ultrafast,
+        conf=parsed_args.conf,
+        reserved_classes=parsed_args.reserved_classes,
     )
     kernel.translate(request)
     return 0
@@ -447,6 +497,7 @@ def yadt_main(parsed_args) -> int:
         OllamaTranslator,
         OpenAITranslator,
         ZhipuTranslator,
+        LongCatTranslator,
         ModelScopeTranslator,
         SiliconTranslator,
         GeminiTranslator,
@@ -474,6 +525,7 @@ def yadt_main(parsed_args) -> int:
         AzureOpenAITranslator,
         OpenAITranslator,
         ZhipuTranslator,
+        LongCatTranslator,
         ModelScopeTranslator,
         SiliconTranslator,
         GeminiTranslator,

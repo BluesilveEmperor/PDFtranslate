@@ -14,7 +14,7 @@ from pdfminer.pdffont import PDFCIDFont, PDFUnicodeNotDefined
 from pdfminer.pdfinterp import PDFGraphicState, PDFResourceManager
 from pdfminer.utils import apply_matrix_pt, mult_matrix
 from pymupdf import Font
-from tenacity import retry, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from pdf2zh.text_spacing import add_cjk_latin_spacing
 from pdf2zh.translator import (
@@ -42,10 +42,38 @@ from pdf2zh.translator import (
     TencentTranslator,
     XinferenceTranslator,
     ZhipuTranslator,
+    LongCatTranslator,
     X302AITranslator,
 )
 
 log = logging.getLogger(__name__)
+
+# 公式字体的默认匹配正则（可通过命令行 --vfont 覆盖）。
+# 注意：仅匹配数学/符号/等宽类字体，并显式排除正文常用字体，
+# 避免把普通正文斜体或 LaTeX 正文粗体/斜体误判为公式而导致整段漏译：
+#   - 已移除 .*Ital：不再命中 Times-Italic、*-ItalicMT 等正文斜体；
+#   - CM[^R] 收窄为 CM(MI|SY|EX|BSY)：只命中数学斜体/符号/大符号/粗体数学符号，
+#     不再命中正文粗体 CMBX、正文斜体 CMTI、无衬线 CMSS。
+DEFAULT_VFONT_PATTERN = (
+    r"(CM(MI|SY|EX|BSY)|MS.M|XY|MT|BL|RM|EU|LA|RS|LINE|LCIRCLE|TeX-"
+    r"|rsfs|txsy|wasy|stmary|.*Mono|.*Code|.*Sym|.*Math)"
+)
+
+
+def _is_math_font(font, pattern: str = DEFAULT_VFONT_PATTERN) -> bool:
+    """判断字体名是否为公式/符号字体（供 vflag 与单元测试复用）。
+
+    处理逻辑与历史实现保持一致：bytes 先尝试按 UTF-8 解码，
+    再按 "+" 截断取真实字体名（去掉 PDF 子集前缀，如 "ABCDEF+Times-Italic"），
+    最后用正则从字符串开头匹配。pattern 为假值时回退到默认正则。
+    """
+    if isinstance(font, bytes):
+        try:
+            font = font.decode("utf-8")
+        except UnicodeDecodeError:
+            font = ""
+    font = font.split("+")[-1]
+    return bool(re.match(pattern or DEFAULT_VFONT_PATTERN, font))
 
 
 class PDFConverterEx(PDFConverter):
@@ -166,11 +194,30 @@ class TranslateConverter(PDFConverterEx):
         if not envs:
             envs = {}
         for translator in [GoogleTranslator, BingTranslator, DeepLTranslator, DeepLXTranslator, OllamaTranslator, XinferenceTranslator, AzureOpenAITranslator,
-                           OpenAITranslator, ZhipuTranslator, ModelScopeTranslator, SiliconTranslator, GeminiTranslator, AzureTranslator, TencentTranslator, DifyTranslator, AnythingLLMTranslator, ArgosTranslator, GrokTranslator, GroqTranslator, DeepseekTranslator, MiniMaxTranslator, OpenAIlikedTranslator, QwenMtTranslator, X302AITranslator]:
+                           OpenAITranslator, ZhipuTranslator, LongCatTranslator, ModelScopeTranslator, SiliconTranslator, GeminiTranslator, AzureTranslator, TencentTranslator, DifyTranslator, AnythingLLMTranslator, ArgosTranslator, GrokTranslator, GroqTranslator, DeepseekTranslator, MiniMaxTranslator, OpenAIlikedTranslator, QwenMtTranslator, X302AITranslator]:
             if service_name == translator.name:
                 self.translator = translator(lang_in, lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
         if not self.translator:
             raise ValueError("Unsupported translation service")
+        log.info("Using translation service: %s", self.translator)
+        endpoint = getattr(self.translator, "endpoint", None)
+        if endpoint:
+            log.info("Translation endpoint: %s", endpoint)
+        for k, v in (envs or {}).items():
+            if not any(
+                s in k.upper()
+                for s in (
+                    "KEY",
+                    "TOKEN",
+                    "SECRET",
+                    "PASSWORD",
+                    "CREDENTIAL",
+                    "PRIVATE",
+                    "PASS",
+                    "AUTH",
+                )
+            ):
+                log.info("Translator env %s=%s", k, v)
 
     def receive_layout(self, ltpage: LTPage):
         started = perf_counter() if self.perf else 0
@@ -188,7 +235,9 @@ class TranslateConverter(PDFConverterEx):
         varf: list[float] = []          # 公式纵向偏移栈
         vlen: list[float] = []          # 公式宽度栈
         # 全局
-        lstk: list[LTLine] = []         # 全局线条栈
+        lstk: list[LTLine] = []         # 全局真实线条栈（原文档 LTLine，会被渲染到输出）
+        dbg_lstk: list[LTLine] = []     # 调试追踪线专用栈：仅用于 DEBUG 分析，绝不参与渲染，
+                                        # 防止字符排版路径被当作多余黑线写入输出内容流
         xt: LTChar = None               # 上一个字符
         xt_cls: int = -1                # 上一个字符所属段落，保证无论第一个字符属于哪个类别都可以触发新段落
         vmax: float = ltpage.width / 4  # 行内公式最大宽度
@@ -203,16 +252,10 @@ class TranslateConverter(PDFConverterEx):
             font = font.split("+")[-1]      # 字体名截断
             if re.match(r"\(cid:", char):
                 return True
-            # 基于字体名规则的判定
-            if self.vfont:
-                if re.match(self.vfont, font):
-                    return True
-            else:
-                if re.match(                                            # latex 字体
-                    r"(CM[^R]|MS.M|XY|MT|BL|RM|EU|LA|RS|LINE|LCIRCLE|TeX-|rsfs|txsy|wasy|stmary|.*Mono|.*Code|.*Ital|.*Sym|.*Math)",
-                    font,
-                ):
-                    return True
+            # 基于字体名规则的判定：默认使用收紧后的数学/符号字体白名单，
+            # 用户通过 --vfont 显式指定时以其为准（见 DEFAULT_VFONT_PATTERN）。
+            if _is_math_font(font, self.vfont):
+                return True
             # 基于字符集规则的判定
             if self.vchar:
                 if re.match(self.vchar, char):
@@ -342,21 +385,45 @@ class TranslateConverter(PDFConverterEx):
             varl.append(vlstk)
             varf.append(vfix)
         log.debug("\n==========[VSTACK]==========\n")
+        prose_warned = 0
         for id, v in enumerate(var):  # 计算公式宽度
             l = max([vch.x1 for vch in v]) - v[0].x0
-            log.debug(f'< {l:.1f} {v[0].x0:.1f} {v[0].y0:.1f} {v[0].cid} {v[0].fontname} {len(varl[id])} > v{id} = {"".join([ch.get_text() for ch in v])}')
+            text = "".join(ch.get_text() for ch in v)
+            log.debug(f'< {l:.1f} {v[0].x0:.1f} {v[0].y0:.1f} {v[0].cid} {v[0].fontname} {len(varl[id])} > v{id} = {text}')
             vlen.append(l)
+            if (
+                len(text) > 40
+                and len(re.findall(r"[A-Za-z]{2,}", text)) >= 6
+                and sum(c.isalpha() or c.isspace() for c in text) / len(text) > 0.5
+            ):
+                prose_warned += 1
+                message = (
+                    "Possible body text misdetected as formula (font: %s): %.60s... "
+                    "Consider adjusting --vfont/--vchar if this is prose."
+                )
+                safe_text = text.replace("\n", " ").replace("\r", " ")
+                if prose_warned <= 5:
+                    log.warning(message, v[0].fontname, safe_text)
+                else:
+                    log.debug(message, v[0].fontname, safe_text)
 
         ############################################################
         # B. 段落翻译
         log.debug("\n==========[SSTACK]==========\n")
 
-        @retry(wait=wait_fixed(1))
+        @retry(wait=wait_fixed(1), stop=stop_after_attempt(60))
         def worker(s: str):  # 多线程翻译
             if not s.strip() or re.match(r"^\{v\d+\}$", s):  # 空白和公式不翻译
                 return s
             try:
                 new = self.translator.translate(s)
+                if len(s.strip()) > 30 and (
+                    not new.strip() or new.strip() == s.strip()
+                ):
+                    log.warning(
+                        "Paragraph possibly untranslated (empty or identical output): %.80s",
+                        s.replace("\n", " ").replace("\r", " "),
+                    )
                 return new
             except BaseException as e:
                 if log.isEnabledFor(logging.DEBUG):
@@ -406,7 +473,8 @@ class TranslateConverter(PDFConverterEx):
             return f"/{font} {size:f} Tf 1 0 0 1 {x:f} {y:f} Tm [<{rtxt}>] TJ "
 
         def gen_op_line(x, y, xlen, ylen, linewidth):
-            return f"ET q 1 0 0 1 {x:f} {y:f} cm [] 0 d 0 J {linewidth:f} w 0 0 m {xlen:f} {ylen:f} l S Q BT "
+            # 显式设置描边颜色为黑（0 G），避免继承当前图形状态导致线条变色/消失
+            return f"ET q 0 G 1 0 0 1 {x:f} {y:f} cm [] 0 d 0 J {linewidth:f} w 0 0 m {xlen:f} {ylen:f} l S Q BT "
 
         for id, new in enumerate(news):
             new = add_cjk_latin_spacing(new)
@@ -490,8 +558,8 @@ class TranslateConverter(PDFConverterEx):
                             "rtxt": raw_string(self.fontid[vch.font], vc),
                             "lidx": lidx
                         })
-                        if log.isEnabledFor(logging.DEBUG):
-                            lstk.append(LTLine(0.1, (_x, _y), (x + vch.x0 - var[vid][0].x0, fix + y + vch.y0 - var[vid][0].y0)))
+                        if log.isEnabledFor(logging.DEBUG):  # 仅调试：追踪线写入调试栈，绝不渲染
+                            dbg_lstk.append(LTLine(0.1, (_x, _y), (x + vch.x0 - var[vid][0].x0, fix + y + vch.y0 - var[vid][0].y0)))
                             _x, _y = x + vch.x0 - var[vid][0].x0, fix + y + vch.y0 - var[vid][0].y0
                     for l in varl[vid]:  # 排版公式线条
                         if l.linewidth < 5:  # hack 有的文档会用粗线条当图片背景
@@ -516,8 +584,8 @@ class TranslateConverter(PDFConverterEx):
                 adv -= mod # 文字修饰符
                 fcur = fcur_
                 x += adv
-                if log.isEnabledFor(logging.DEBUG):
-                    lstk.append(LTLine(0.1, (_x, _y), (x, y)))
+                if log.isEnabledFor(logging.DEBUG):  # 仅调试：追踪线写入调试栈，绝不渲染
+                    dbg_lstk.append(LTLine(0.1, (_x, _y), (x, y)))
                     _x, _y = x, y
             # 处理结尾
             if cstk:

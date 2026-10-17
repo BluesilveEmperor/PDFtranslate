@@ -38,11 +38,11 @@ class TestKernelProtocol(unittest.TestCase):
         from pdf2zh.kernel.protocol import TranslateResult
 
         result = TranslateResult(
-            mono_pdf=Path("/tmp/mono.pdf"),
-            dual_pdf=Path("/tmp/dual.pdf"),
+            mono_pdf=Path("tmp/mono.pdf"),
+            dual_pdf=Path("tmp/dual.pdf"),
             time_cost=1.5,
         )
-        self.assertEqual(result.mono_pdf, Path("/tmp/mono.pdf"))
+        self.assertEqual(result.mono_pdf, Path("tmp/mono.pdf"))
         self.assertEqual(result.time_cost, 1.5)
 
 
@@ -236,11 +236,11 @@ class TestV2Bridge(unittest.TestCase):
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
         from pdf2zh.kernel.protocol import TranslateRequest
 
-        req = TranslateRequest(files=["test.pdf"], output="/tmp/out")
+        req = TranslateRequest(files=["test.pdf"], output="tmp/out")
         args = request_to_cli_args(req)
         self.assertIn("--output", args)
         idx = args.index("--output")
-        self.assertEqual(args[idx + 1], str(Path("/tmp/out").resolve()))
+        self.assertEqual(args[idx + 1], str(Path("tmp/out").resolve()))
 
     def test_cli_args_service_model_split(self):
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
@@ -350,7 +350,7 @@ class TestLegacyKernelTranslation(unittest.TestCase):
     @patch("pdf2zh.doclayout.ModelInstance")
     def test_translate_single_file(self, mock_model_inst, mock_onnx, mock_translate):
         mock_model_inst.value = MagicMock()
-        mock_translate.return_value = [("/tmp/mono.pdf", "/tmp/dual.pdf")]
+        mock_translate.return_value = [("tmp/mono.pdf", "tmp/dual.pdf")]
 
         from pdf2zh.kernel.legacy import LegacyKernel
         from pdf2zh.kernel.protocol import TranslateRequest
@@ -361,8 +361,8 @@ class TestLegacyKernelTranslation(unittest.TestCase):
 
         mock_translate.assert_called_once()
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].mono_pdf, Path("/tmp/mono.pdf"))
-        self.assertEqual(results[0].dual_pdf, Path("/tmp/dual.pdf"))
+        self.assertEqual(results[0].mono_pdf, Path("tmp/mono.pdf"))
+        self.assertEqual(results[0].dual_pdf, Path("tmp/dual.pdf"))
 
     @patch("pdf2zh.high_level.translate")
     @patch("pdf2zh.doclayout.OnnxModel")
@@ -439,7 +439,7 @@ class TestPreciseKernelTranslation(unittest.TestCase):
         mock_proc.stdout = MagicMock()
         mock_proc.stdout.read.return_value = json.dumps(
             {
-                "results": [{"mono_pdf": "/tmp/mono.pdf", "dual_pdf": "/tmp/dual.pdf"}],
+                "results": [{"mono_pdf": "tmp/mono.pdf", "dual_pdf": "tmp/dual.pdf"}],
                 "time_cost": 1.5,
             }
         )
@@ -456,7 +456,7 @@ class TestPreciseKernelTranslation(unittest.TestCase):
         results = k.translate(req)
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].mono_pdf, Path("/tmp/mono.pdf"))
+        self.assertEqual(results[0].mono_pdf, Path("tmp/mono.pdf"))
         self.assertAlmostEqual(results[0].time_cost, 1.5)
 
     @patch("pdf2zh.kernel.precise.subprocess.Popen")
@@ -558,7 +558,7 @@ class TestV2BridgeEndToEnd(unittest.TestCase):
             prompt="Be formal",
             ignore_cache=True,
             debug=True,
-            output="/tmp/out",
+            output="tmp/out",
         )
         args = request_to_cli_args(req)
 
@@ -582,7 +582,7 @@ class TestV2BridgeEndToEnd(unittest.TestCase):
         idx = args.index("--output")
         from pathlib import Path
 
-        self.assertEqual(args[idx + 1], str(Path("/tmp/out").resolve()))
+        self.assertEqual(args[idx + 1], str(Path("tmp/out").resolve()))
 
     def test_env_all_fields(self):
         from pdf2zh.kernel.v2_bridge import request_to_env
@@ -599,14 +599,15 @@ class TestV2BridgeEndToEnd(unittest.TestCase):
         self.assertEqual(env["PDF2ZH_GEMINI_MODEL"], "gemini-pro")
 
     def test_output_defaults_to_input_parent(self):
+        from pathlib import Path
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
         from pdf2zh.kernel.protocol import TranslateRequest
 
-        req = TranslateRequest(files=["/some/dir/test.pdf"])
+        req = TranslateRequest(files=["some/dir/test.pdf"])
         args = request_to_cli_args(req)
         self.assertIn("--output", args)
         idx = args.index("--output")
-        self.assertEqual(args[idx + 1], "/some/dir")
+        self.assertEqual(args[idx + 1], str(Path("some/dir/test.pdf").resolve().parent))
 
     def test_output_resolved_to_absolute_path(self):
         from pathlib import Path

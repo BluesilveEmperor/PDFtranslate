@@ -1,6 +1,5 @@
 import asyncio
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -103,7 +102,7 @@ class TestOCRPages(unittest.TestCase):
             page_xrefs = [page.xref for page in doc]
             target_rect = doc[0].rect
             with patch.object(
-                high_level, "_ocr_tessdata", return_value="/tmp/tessdata"
+                high_level, "_ocr_tessdata", return_value="tmp/tessdata"
             ) as tessdata:
                 with patch.object(
                     pymupdf.Pixmap, "pdfocr_tobytes", return_value=recognized
@@ -112,7 +111,7 @@ class TestOCRPages(unittest.TestCase):
 
             self.assertEqual(result, {0})
             tessdata.assert_called_once_with("eng")
-            ocr.assert_called_once_with(language="eng", tessdata="/tmp/tessdata")
+            ocr.assert_called_once_with(language="eng", tessdata="tmp/tessdata")
             self.assertEqual([page.xref for page in doc], page_xrefs)
             self.assertEqual(doc[0].rect, target_rect)
             self.assertEqual(doc[0].get_text().strip(), "recognized text")
@@ -125,7 +124,7 @@ class TestOCRPages(unittest.TestCase):
     def test_ocr_failure_has_actionable_error(self):
         with pymupdf.open(stream=_source_pdf()) as doc:
             with patch.object(
-                high_level, "_ocr_tessdata", return_value="/tmp/tessdata"
+                high_level, "_ocr_tessdata", return_value="tmp/tessdata"
             ):
                 with patch.object(
                     pymupdf.Pixmap,
@@ -158,10 +157,9 @@ class TestOCRPages(unittest.TestCase):
 
     def test_tessdata_explicit_override_skips_download(self):
         with patch.dict(os.environ, {"TESSDATA_PREFIX": "/manual/tessdata"}):
-            with patch.dict(sys.modules, {"pooch": None}):
-                self.assertEqual(
-                    high_level._ocr_tessdata("eng+deu"), "/manual/tessdata"
-                )
+            self.assertEqual(
+                high_level._ocr_tessdata("eng+deu"), "/manual/tessdata"
+            )
 
     def test_tessdata_rejects_invalid_language(self):
         with patch.dict(os.environ, {"TESSDATA_PREFIX": ""}):
@@ -169,59 +167,105 @@ class TestOCRPages(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid OCR language"):
                     high_level._ocr_tessdata(language)
 
-    def test_tessdata_missing_optional_dependency_is_actionable(self):
-        with tempfile.TemporaryDirectory() as home:
-            with patch.dict(os.environ, {"TESSDATA_PREFIX": ""}):
-                with patch.object(high_level.Path, "home", return_value=Path(home)):
-                    with patch.dict(sys.modules, {"pooch": None}):
-                        with self.assertRaisesRegex(RuntimeError, r"pdf2zh\[ocr\]"):
-                            high_level._ocr_tessdata("eng")
-
     def test_tessdata_downloads_each_language_and_reuses_cache(self):
-        try:
-            import pooch
-        except ImportError:
-            self.skipTest("pooch optional dependency is unavailable")
-
         with tempfile.TemporaryDirectory() as home:
             downloads = []
 
-            def download(url, output_file, _pooch, check_only=False):
-                downloads.append(url)
-                Path(output_file).write_bytes(b"traineddata")
+            def get(url, **kwargs):
+                downloads.append((url, kwargs))
+                response = Mock()
+                response.content = b"x" * 2048
+                response.raise_for_status.return_value = None
+                return response
 
-            downloader = Mock(side_effect=download)
-            with patch.dict(os.environ, {"TESSDATA_PREFIX": ""}):
+            with patch.dict(
+                os.environ,
+                {"TESSDATA_PREFIX": "", "PDF2ZH_TESSDATA_MIRRORS": ""},
+            ):
                 with patch.object(high_level.Path, "home", return_value=Path(home)):
-                    with patch.object(
-                        pooch, "HTTPDownloader", return_value=downloader
-                    ) as make_downloader:
-                        downloader.side_effect = high_level.requests.ConnectionError(
-                            "offline"
-                        )
-                        with self.assertRaisesRegex(
-                            RuntimeError, "Could not download OCR data"
-                        ):
-                            high_level._ocr_tessdata("eng")
-                        self.assertFalse(list(Path(home).rglob("*.traineddata")))
-                        downloader.reset_mock()
-                        downloader.side_effect = download
+                    with patch.object(high_level.requests, "get", side_effect=get):
                         cache = high_level._ocr_tessdata("eng+deu")
                         self.assertEqual(
                             cache,
                             str(Path(home) / ".cache/pdf2zh/tessdata/4.1.0"),
                         )
+                        # Cached now, no further downloads
                         self.assertEqual(cache, high_level._ocr_tessdata("eng+deu"))
 
             self.assertEqual(
-                downloads,
+                [url for url, _ in downloads],
                 [
                     "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata",
                     "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/deu.traineddata",
                 ],
             )
-            self.assertEqual(downloader.call_count, 2)
-            self.assertEqual(make_downloader.call_args.kwargs, {"timeout": 60})
+            self.assertEqual(downloads[0][1]["timeout"], (5, 60))
+            self.assertTrue(
+                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+            )
+
+    def test_tessdata_falls_back_to_next_mirror(self):
+        with tempfile.TemporaryDirectory() as home:
+            failure = high_level.requests.ConnectionError("offline")
+            ok = Mock()
+            ok.content = b"x" * 2048
+            ok.raise_for_status.return_value = None
+            responses = iter([failure, ok])
+
+            def get(url, **kwargs):
+                item = next(responses)
+                if isinstance(item, Exception):
+                    raise item
+                return item
+
+            with patch.dict(
+                os.environ,
+                {"TESSDATA_PREFIX": "", "PDF2ZH_TESSDATA_MIRRORS": ""},
+            ):
+                with patch.object(high_level.Path, "home", return_value=Path(home)):
+                    with patch.object(
+                        high_level.requests, "get", side_effect=get
+                    ) as mock_get:
+                        cache = high_level._ocr_tessdata("eng")
+                        self.assertEqual(
+                            cache,
+                            str(Path(home) / ".cache/pdf2zh/tessdata/4.1.0"),
+                        )
+
+            self.assertEqual(mock_get.call_count, 2)
+            self.assertIn("cdn.jsdelivr.net", mock_get.call_args_list[1][0][0])
+            self.assertTrue(
+                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+            )
+
+    def test_tessdata_custom_mirror_env(self):
+        with tempfile.TemporaryDirectory() as home:
+            urls = []
+
+            def get(url, **kwargs):
+                urls.append(url)
+                response = Mock()
+                response.content = b"x" * 2048
+                response.raise_for_status.return_value = None
+                return response
+
+            with patch.dict(
+                os.environ,
+                {
+                    "TESSDATA_PREFIX": "",
+                    "PDF2ZH_TESSDATA_MIRRORS": "https://mirror.example.com/tess/{filename}",
+                },
+            ):
+                with patch.object(high_level.Path, "home", return_value=Path(home)):
+                    with patch.object(high_level.requests, "get", side_effect=get):
+                        high_level._ocr_tessdata("eng")
+
+            self.assertEqual(
+                urls[0], "https://mirror.example.com/tess/eng.traineddata"
+            )
+            self.assertTrue(
+                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+            )
 
     def test_translate_stream_ocr_masks_body_and_preserves_source(self):
         source, recognized = _scan_streams()
@@ -243,7 +287,7 @@ class TestOCRPages(unittest.TestCase):
         with (
             patch.object(high_level, "download_remote_fonts", return_value=None),
             patch.object(high_level, "NOTO_NAME", "helv"),
-            patch.object(high_level, "_ocr_tessdata", return_value="/tmp/tessdata"),
+            patch.object(high_level, "_ocr_tessdata", return_value="tmp/tessdata"),
             patch.object(pymupdf.Pixmap, "pdfocr_tobytes", return_value=recognized),
             patch(
                 "pdf2zh.translator.GoogleTranslator.translate", side_effect=translate

@@ -114,6 +114,7 @@ We've provided a detailed table on the required [environment variables](https://
 |**Grok**|`grok`| `GROK_API_KEY`, `GROK_MODEL`, `GROK_BASE_URL` (optional) | `[Your GROK_API_KEY]`, `grok-2-1212`, `https://api.x.ai/v1` |See [Grok](https://docs.x.ai/docs/overview). **Note:** When using custom proxy, ensure `GROK_BASE_URL` ends with `/v1` (e.g., `http://your-proxy:8000/v1`)|
 |**Groq**|`groq`| `GROQ_API_KEY`, `GROQ_MODEL` | `[Your GROQ_API_KEY]`, `llama-3-3-70b-versatile` |See [Groq](https://console.groq.com/docs/models)|
 |**DeepSeek**|`deepseek`| `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` | `[Your DEEPSEEK_API_KEY]`, `deepseek-chat` |See [DeepSeek](https://www.deepseek.com/)|
+|**LongCat**|`longcat`| `LONGCAT_API_KEY`, `LONGCAT_MODEL` | `[Your LONGCAT_API_KEY]`, `LongCat-Flash-Chat` |See [LongCat](https://platform.longcat.chat/)|
 |**MiniMax**|`minimax`| `MINIMAX_API_KEY`, `MINIMAX_MODEL` | `[Your MINIMAX_API_KEY]`, `MiniMax-M2.7` |See [MiniMax](https://platform.minimaxi.com/)|
 |**OpenAI-Liked**|`openailiked`| `OPENAILIKED_BASE_URL`, `OPENAILIKED_API_KEY`, `OPENAILIKED_MODEL` | `url`, `[Your Key]`, `model name` | None |
 |**OpenAI-Liked**|`openailiked`| `OPENAILIKED_BASE_URL`, `OPENAILIKED_API_KEY`, `OPENAILIKED_MODEL`, `OPENAILIKED_STOP_TOKENS`, `OPENAILIKED_MAX_TOKENS` | `url`, `[Your Key]`, `model name`, ` `, `-1` | None |

@@ -28,6 +28,8 @@ class TranslateRequest:
     ignore_cache: bool = False
     compatible: bool = False
     ultrafast: bool = False
+    conf: float = 0.25
+    reserved_classes: str = "abandon,figure,table,isolate_formula,formula_caption"
 
     def __post_init__(self):
         if self.thread is None:

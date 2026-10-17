@@ -199,7 +199,7 @@ class OnnxModel(DocLayoutModel):
         boxes[..., :4] = (boxes[..., :4] - [pad_x, pad_y, pad_x, pad_y]) / gain
         return boxes
 
-    def predict(self, image, imgsz=1024, **kwargs):
+    def predict(self, image, imgsz=1024, conf=0.25, **kwargs):
         # Preprocess input image
         orig_h, orig_w = image.shape[:2]
         pix = self.resize_and_pad_image(image, new_shape=imgsz)
@@ -212,7 +212,7 @@ class OnnxModel(DocLayoutModel):
         preds = self.model.run(None, {"images": pix})[0]
 
         # Postprocess predictions
-        preds = preds[preds[..., 4] > 0.25]
+        preds = preds[preds[..., 4] > conf]
         preds[..., :4] = self.scale_boxes(
             (new_h, new_w), preds[..., :4], (orig_h, orig_w)
         )

@@ -3,7 +3,10 @@ import cgi
 import os
 import shutil
 import socket
+import threading
+import time
 import uuid
+import webbrowser
 from asyncio import CancelledError
 from pathlib import Path
 import typing as T
@@ -39,6 +42,7 @@ from pdf2zh.translator import (
     TencentTranslator,
     XinferenceTranslator,
     ZhipuTranslator,
+    LongCatTranslator,
     GrokTranslator,
     GroqTranslator,
     DeepseekTranslator,
@@ -50,6 +54,9 @@ from babeldoc.docvision.doclayout import OnnxModel
 from babeldoc import __version__ as babeldoc_version
 
 logger = logging.getLogger(__name__)
+
+# Avoid Gradio startup telemetry requests to overseas endpoints
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 
 class _LazyModel:
@@ -81,6 +88,7 @@ service_map: dict[str, BaseTranslator] = {
     "AzureOpenAI": AzureOpenAITranslator,
     "OpenAI": OpenAITranslator,
     "Zhipu": ZhipuTranslator,
+    "LongCat": LongCatTranslator,
     "ModelScope": ModelScopeTranslator,
     "Silicon": SiliconTranslator,
     "Gemini": GeminiTranslator,
@@ -141,15 +149,20 @@ if ConfigManager.get("PDF2ZH_DEMO"):
 enabled_services: T.Optional[T.List[str]] = ConfigManager.get("ENABLED_SERVICES")
 if isinstance(enabled_services, list):
     default_services = ["Google", "Bing"]
-    enabled_services_names = [str(_).lower().strip() for _ in enabled_services]
-    enabled_services = [
-        k
-        for k in service_map.keys()
-        if str(k).lower().strip() in enabled_services_names
-    ]
+    lookup = {str(k).lower().strip(): k for k in service_map.keys()}
+    enabled_services = list(
+        dict.fromkeys(
+            lookup[str(name).lower().strip()]
+            for name in enabled_services
+            if str(name).lower().strip() in lookup
+        )
+    )
     if len(enabled_services) == 0:
         raise RuntimeError("No services available.")
-    enabled_services = default_services + enabled_services
+    # Keep user-configured order first; append defaults only if missing
+    enabled_services = enabled_services + [
+        k for k in default_services if k not in enabled_services
+    ]
 else:
     enabled_services = list(service_map.keys())
 
@@ -413,6 +426,7 @@ def babeldoc_translate_file(**kwargs):
         AzureOpenAITranslator,
         OpenAITranslator,
         ZhipuTranslator,
+        LongCatTranslator,
         ModelScopeTranslator,
         SiliconTranslator,
         GeminiTranslator,
@@ -856,8 +870,25 @@ def _has_ipv6() -> bool:
         return False
 
 
+def open_browser_when_ready(port: int, timeout: float = 15.0) -> None:
+    """Open the browser at a reachable local URL once the server is listening.
+
+    Gradio's ``inbrowser=True`` opens the literal bind address
+    (e.g. ``http://[::]:7860``), which browsers cannot reach on Windows.
+    ``localhost`` resolves to whichever loopback address is listening.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("localhost", port), timeout=1):
+                webbrowser.open(f"http://localhost:{port}")
+                return
+        except OSError:
+            time.sleep(0.2)
+
+
 def setup_gui(
-    share: bool = False, auth_file: list = ["", ""], server_port=7860
+    share: bool = False, auth_file: list = None, server_port=7860
 ) -> None:
     """
     Setup the GUI with the given parameters.
@@ -869,6 +900,8 @@ def setup_gui(
     Outputs:
         - None
     """
+    if auth_file is None:
+        auth_file = ["", ""]
     user_list, html = parse_user_passwd(auth_file)
 
     auth_kwargs = {}
@@ -876,7 +909,10 @@ def setup_gui(
         auth_kwargs = {"auth": user_list, "auth_message": html}
 
     if flag_demo:
-        demo.launch(server_name="0.0.0.0", max_file_size="5mb", inbrowser=True)
+        threading.Thread(
+            target=open_browser_when_ready, args=(server_port,), daemon=True
+        ).start()
+        demo.launch(server_name="0.0.0.0", max_file_size="5mb", inbrowser=False)
         return
 
     # Try binding addresses in order: "::" accepts both IPv4+IPv6 on most
@@ -888,12 +924,15 @@ def setup_gui(
     bind_addresses.append("0.0.0.0")
     bind_addresses.append("127.0.0.1")
 
+    threading.Thread(
+        target=open_browser_when_ready, args=(server_port,), daemon=True
+    ).start()
     for addr in bind_addresses:
         try:
             demo.launch(
                 server_name=addr,
                 debug=True,
-                inbrowser=True,
+                inbrowser=False,
                 share=share,
                 server_port=server_port,
                 **auth_kwargs,
@@ -904,6 +943,10 @@ def setup_gui(
                 f"Error launching GUI using {addr}.\n"
                 "This may be caused by global mode of proxy software."
             )
+            try:
+                demo.close()  # release the port so the next attempt can bind
+            except Exception:
+                pass
 
     # Last resort: let Gradio create a share link
     demo.launch(
@@ -917,5 +960,5 @@ def setup_gui(
 
 # For auto-reloading while developing
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     setup_gui()

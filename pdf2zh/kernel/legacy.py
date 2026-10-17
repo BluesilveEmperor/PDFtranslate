@@ -62,6 +62,8 @@ class LegacyKernel:
             "ignore_cache": request.ignore_cache,
             "compatible": request.compatible,
             "ultrafast": request.ultrafast,
+            "conf": request.conf,
+            "reserved_classes": request.reserved_classes,
         }
 
         if request.pages and isinstance(request.pages, list):

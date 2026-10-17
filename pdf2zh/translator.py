@@ -27,9 +27,22 @@ from pdf2zh.config import ConfigManager
 
 from tenacity import retry, retry_if_exception_type
 from tenacity import stop_after_attempt
-from tenacity import wait_exponential
+from tenacity import wait_exponential_jitter
 
 logger = logging.getLogger(__name__)
+
+# Back off exponentially with random jitter on API rate limits (429) instead
+# of hammering the service; jitter spreads concurrent workers' retries apart.
+# Applies to every OpenAI-compatible translator.
+rate_limit_retry = retry(
+    retry=retry_if_exception_type(openai.RateLimitError),
+    stop=stop_after_attempt(100),
+    wait=wait_exponential_jitter(initial=1, max=15),
+    before_sleep=lambda retry_state: logger.warning(
+        f"RateLimitError, retrying in {retry_state.next_action.sleep} seconds... "
+        f"(Attempt {retry_state.attempt_number}/100)"
+    ),
+)
 
 
 def remove_control_characters(s):
@@ -99,6 +112,19 @@ class BaseTranslator:
                 return cache
 
         translation = self.do_translate(text)
+        bad = (
+            translation is None
+            or not str(translation).strip()
+            or "IRREPARABLE TRANSLATION ERROR" in str(translation)
+        )
+        if bad:
+            logging.warning(
+                "Translator %s returned an empty/error result, will not be cached. "
+                "Source: %.80s",
+                self.name,
+                text.replace("\n", " ").replace("\r", " "),
+            )
+            return str(translation) if translation is not None else ""
         if not self.no_cache:
             self.cache.set(text, translation)
         return translation
@@ -449,6 +475,7 @@ class OpenAITranslator(BaseTranslator):
         self.client = openai.OpenAI(
             base_url=base_url or self.envs["OPENAI_BASE_URL"],
             api_key=api_key or self.envs["OPENAI_API_KEY"],
+            max_retries=0,  # retries are owned by rate_limit_retry backoff
         )
         self.prompttext = prompt
         self.add_cache_impact_parameters("temperature", self.options["temperature"])
@@ -462,15 +489,7 @@ class OpenAITranslator(BaseTranslator):
         stream_val = self.envs.get("OPENAI_STREAM", "true").lower()
         self.stream = stream_val == "true"
 
-    @retry(
-        retry=retry_if_exception_type(openai.RateLimitError),
-        stop=stop_after_attempt(100),
-        wait=wait_exponential(multiplier=1, min=1, max=15),
-        before_sleep=lambda retry_state: logger.warning(
-            f"RateLimitError, retrying in {retry_state.next_action.sleep} seconds... "
-            f"(Attempt {retry_state.attempt_number}/100)"
-        ),
-    )
+    @rate_limit_retry
     def do_translate(self, text) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
@@ -616,6 +635,7 @@ class ZhipuTranslator(OpenAITranslator):
         self.prompttext = prompt
         self.add_cache_impact_parameters("prompt", self.prompt("", self.prompttext))
 
+    @rate_limit_retry
     def do_translate(self, text) -> str:
         try:
             response = self.client.chat.completions.create(
@@ -631,6 +651,35 @@ class ZhipuTranslator(OpenAITranslator):
                 return "IRREPARABLE TRANSLATION ERROR"
             raise e
         return response.choices[0].message.content.strip()
+
+
+class LongCatTranslator(OpenAITranslator):
+    # https://platform.longcat.chat — Meituan LongCat, OpenAI-compatible API
+    name = "longcat"
+    envs = {
+        "LONGCAT_API_KEY": None,
+        "LONGCAT_MODEL": "LongCat-Flash-Chat",
+    }
+    CustomPrompt = True
+
+    def __init__(
+        self, lang_in, lang_out, model, envs=None, prompt=None, ignore_cache=False
+    ):
+        self.set_envs(envs)
+        base_url = "https://api.longcat.chat/openai/v1"
+        api_key = self.envs["LONGCAT_API_KEY"]
+        if not model:
+            model = self.envs["LONGCAT_MODEL"]
+        super().__init__(
+            lang_in,
+            lang_out,
+            model,
+            base_url=base_url,
+            api_key=api_key,
+            ignore_cache=ignore_cache,
+        )
+        self.prompttext = prompt
+        self.add_cache_impact_parameters("prompt", self.prompt("", self.prompttext))
 
 
 class SiliconTranslator(OpenAITranslator):

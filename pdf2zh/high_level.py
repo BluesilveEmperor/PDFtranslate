@@ -98,6 +98,8 @@ def translate_patch(
     ultrafast: bool = False,
     perf=None,
     text_items=None,
+    conf: float = 0.25,
+    reserved_classes: str = "abandon,figure,table,isolate_formula,formula_caption",
     **kwarg: Any,
 ) -> None:
     if ultrafast and not thread:
@@ -179,7 +181,11 @@ def translate_patch(
                 image = np.frombuffer(pix.samples, np.uint8).reshape(
                     pix.height, pix.width, 3
                 )[:, :, ::-1]
-                page_layout = model.predict(image, imgsz=int(pix.height / 32) * 32)[0]
+                page_layout = model.predict(
+                    image,
+                    imgsz=int(pix.height / 32) * 32,
+                    conf=conf,
+                )[0]
                 if ocr_pages and pageno in ocr_pages:
                     from pdf2zh.ocr import translate_ocr_page
 
@@ -195,13 +201,7 @@ def translate_patch(
                 # kdtree 是不可能 kdtree 的，不如直接渲染成图片，用空间换时间
                 box = np.ones((pix.height, pix.width))
                 h, w = box.shape
-                vcls = [
-                    "abandon",
-                    "figure",
-                    "table",
-                    "isolate_formula",
-                    "formula_caption",
-                ]
+                vcls = [c.strip() for c in reserved_classes.split(",") if c.strip()]
                 for i, d in enumerate(page_layout.boxes):
                     if page_layout.names[int(d.cls)] not in vcls:
                         x0, y0, x1, y1 = d.xyxy.squeeze()
@@ -280,35 +280,64 @@ def translate_patch(
     return obj_patch
 
 
+_TESSDATA_MIRRORS = [
+    "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/{filename}",
+    "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0/{filename}",
+    "https://gcore.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0/{filename}",
+    "https://ghfast.top/https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/{filename}",
+]
+
+
+def _tessdata_mirror_templates():
+    """Mirror URL templates for tessdata; custom mirrors (env) come first."""
+    templates = []
+    custom = os.environ.get("PDF2ZH_TESSDATA_MIRRORS", "")
+    for template in custom.split(","):
+        template = template.strip()
+        if template:
+            templates.append(template)
+    templates.extend(_TESSDATA_MIRRORS)
+    return templates
+
+
 def _ocr_tessdata(language):
     """Use explicit local data, or download requested languages once on demand."""
     if not re.fullmatch(r"[A-Za-z0-9_]+(?:\+[A-Za-z0-9_]+)*", language):
         raise ValueError("Invalid OCR language; use Tesseract codes such as eng+deu")
     if tessdata := os.environ.get("TESSDATA_PREFIX"):
         return tessdata
-    try:
-        import pooch
-    except ImportError as exc:
-        raise RuntimeError(
-            "Automatic OCR downloads require pip install 'pdf2zh[ocr]'. "
-            "Alternatively, set TESSDATA_PREFIX to existing language data."
-        ) from exc
     cache = Path.home() / ".cache/pdf2zh/tessdata/4.1.0"
     for code in dict.fromkeys(language.split("+")):
         filename = f"{code}.traineddata"
-        try:
-            pooch.retrieve(
-                url=f"https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/{filename}",
-                known_hash=None,
-                fname=filename,
-                path=cache,
-                downloader=pooch.HTTPDownloader(timeout=60),
-            )
-        except (requests.RequestException, OSError) as exc:
+        target = cache / filename
+        if target.exists() and target.stat().st_size > 0:
+            continue
+        last_exc = None
+        tried = []
+        for template in _tessdata_mirror_templates():
+            url = template.format(filename=filename)
+            tried.append(url)
+            try:
+                response = requests.get(url, timeout=(5, 60))
+                response.raise_for_status()
+                if len(response.content) < 1024:  # mirror error pages are small
+                    raise ValueError("suspiciously small response")
+                cache.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_name(target.name + ".part")
+                tmp.write_bytes(response.content)
+                tmp.replace(target)
+                logger.info("Downloaded OCR data for '%s' from %s", code, url)
+                break
+            except (requests.RequestException, OSError, ValueError) as exc:
+                last_exc = exc
+                logger.warning("OCR data download failed from %s: %s", url, exc)
+        else:
             raise RuntimeError(
-                f"Could not download OCR data for '{code}'. Check the language code "
-                "and network connection, or set TESSDATA_PREFIX to local data."
-            ) from exc
+                f"Could not download OCR data for '{code}' from any of the "
+                f"{len(tried)} mirrors tried. Check the language code and "
+                f"network connection, or place '{filename}' into '{cache}' "
+                "manually, or set TESSDATA_PREFIX to local data."
+            ) from last_exc
     return str(cache)
 
 
@@ -389,6 +418,8 @@ def translate_stream(
     ignore_cache: bool = False,
     ultrafast: bool = False,
     perf=None,
+    conf: float = 0.25,
+    reserved_classes: str = "abandon,figure,table,isolate_formula,formula_caption",
     **kwarg: Any,
 ):
     if ultrafast and not thread:
@@ -572,6 +603,8 @@ def translate(
     skip_subset_fonts: bool = False,
     ignore_cache: bool = False,
     ultrafast: bool = False,
+    conf: float = 0.25,
+    reserved_classes: str = "abandon,figure,table,isolate_formula,formula_caption",
     **kwarg: Any,
 ):
     if not files:

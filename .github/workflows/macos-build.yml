@@ -1,0 +1,49 @@
+name: macOS app Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release Version (e.g., v1.0.0)'
+        required: true
+        type: string
+  # push:
+    # debug purpose
+env:
+  MAC_PYTHON_VERSION: 3.12
+jobs:
+  build-macos-exe:
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: Setup uv with Python ${{ env.MAC_PYTHON_VERSION }}
+        uses: astral-sh/setup-uv@85856786d1ce8acfbcc2f13a5f3fbd6b938f9f41 # v7.1.2
+        with:
+          python-version: ${{ env.MAC_PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: 安装项目依赖
+        run: |
+          uv pip install .
+
+      - name: 安装 PyInstaller
+        run: |
+          uv pip install pyinstaller
+
+      - name: 使用 PyInstaller 打包
+        run: |
+          uv run pyinstaller --onefile --name pdf2zh --collect-all gradio --collect-all onnxruntime --collect-all pdf2zh pdf2zh/pdf2zh.py
+
+      - name: 测试可执行文件
+        run: |
+          ./dist/pdf2zh --version
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-exe
+          path: ./dist
+          if-no-files-found: error
