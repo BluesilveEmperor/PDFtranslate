@@ -35,14 +35,18 @@ jobs:
         run: |
           bash build.sh
 
+      - name: 打包 tar.gz（保留权限与符号链接）
+        run: |
+          tar czf pdf2zh-linux-x64.tar.gz build
+          ls -lh pdf2zh-linux-x64.tar.gz
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
           name: linux-tar
-          path: ./build
+          path: pdf2zh-linux-x64.tar.gz
           if-no-files-found: error
-          compression-level: 9
-          include-hidden-files: true
+          compression-level: 0
 
   test-linux-tar:
     needs:
@@ -56,11 +60,13 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: linux-tar
-          path: ./build
+
+      - name: 解压 tar.gz
+        run: |
+          tar xzf pdf2zh-linux-x64.tar.gz
 
       - name: Test show version
         run: |
-          chmod +x ./build/pdf2zh ./build/runtime/bin/python3.12
           ./build/pdf2zh --version
 
       - name: Test - Translate a PDF file with plain text only

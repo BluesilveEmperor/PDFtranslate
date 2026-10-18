@@ -27,17 +27,25 @@ jobs:
           set -e
           WIN_AID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WIN_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="win64-exe") | .id')
           echo "Windows artifact id: $WIN_AID"
-          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$WIN_AID/zip" -o win64-exe.zip
-          echo "win64-exe.zip size: $(wc -c < win64-exe.zip) bytes"
+          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$WIN_AID/zip" -o pdf2zh-win64.zip
+          echo "win64 size: $(wc -c < pdf2zh-win64.zip) bytes"
 
           LINUX_AID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$LINUX_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="linux-tar") | .id')
           echo "Linux artifact id: $LINUX_AID"
-          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$LINUX_AID/zip" -o linux-tar.zip
-          echo "linux-tar.zip size: $(wc -c < linux-tar.zip) bytes"
+          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$LINUX_AID/zip" -o linux-artifact.zip
+          echo "linux artifact size: $(wc -c < linux-artifact.zip) bytes"
 
           MAC_AID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MAC_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="macos-exe") | .id')
           echo "macOS artifact id: $MAC_AID"
-          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$MAC_AID/zip" -o macos-exe.zip
-          echo "macos-exe.zip size: $(wc -c < macos-exe.zip) bytes"
+          curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$MAC_AID/zip" -o mac-artifact.zip
+          echo "mac artifact size: $(wc -c < mac-artifact.zip) bytes"
 
-          gh release upload v0.0.1 win64-exe.zip linux-tar.zip macos-exe.zip --clobber --repo "$GITHUB_REPOSITORY"
+          # linux/macos 的 artifact 是 zip 套 tar.gz（tar.gz 保留权限与符号链接），
+          # 解出内层 tar.gz 作为发布产物
+          mkdir -p pkg && cd pkg
+          unzip -q ../linux-artifact.zip
+          unzip -q ../mac-artifact.zip
+          cd ..
+          ls -lh pkg/
+
+          gh release upload v0.0.1 pdf2zh-win64.zip pkg/pdf2zh-linux-x64.tar.gz pkg/pdf2zh-macos-arm64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
