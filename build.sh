@@ -34,15 +34,9 @@ echo "==== 6/7 复制 _pystand_static.int ===="
 cp script/_pystand_static.int build/_pystand_static.int
 
 echo "==== 7/7 生成离线资源 ===="
-cat > "$CONDA_SP/sitecustomize.py" << 'EOF'
-try:
-    from bitstring import BitStream
-except ImportError:
-    from bitstring import BitArray
-    import bitstring
-    bitstring.BitStream = BitArray
-EOF
-$CONDA_BIN run -n pdf2zh_build babeldoc --generate-offline-assets build
+# 注: babeldoc --generate-offline-assets 需要联网校验(本机直连 HuggingFace 不通),
+# 改用本地缓存打包: 从 ~/.cache/babeldoc/ 校验并打 zip, 无需联网
+$CONDA_BIN run -n pdf2zh_build python script/make_offline_assets.py build
 
 echo ""
 echo "==== 构建完成！===="
