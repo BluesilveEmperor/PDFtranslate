@@ -1,5 +1,7 @@
 # PDFMathTranslate
 
+**简体中文 | [English](README.en.md)**
+
 科学 PDF 文档翻译工具，保留原始排版、公式、图表和注释。
 
 本仓库为个人维护的 fork，主要增强：跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化。
