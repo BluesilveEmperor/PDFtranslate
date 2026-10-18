@@ -548,9 +548,9 @@ def translate_file(
     file_raw = output / f"{filename}.pdf"
     file_mono = output / f"{filename}-mono.pdf"
     file_dual = output / f"{filename}-dual.pdf"
-    # 翻译产物统一加 Traned_ 前缀（replace 为原子覆盖，重译同名文件不留旧产物）
-    file_mono_out = output / f"Traned_{filename}-mono.pdf"
-    file_dual_out = output / f"Traned_{filename}-dual.pdf"
+    # 翻译产物统一加前缀（replace 为原子覆盖，重译同名文件不留旧产物）
+    file_mono_out = output / f"Traned_single_{filename}.pdf"
+    file_dual_out = output / f"Traned_double_{filename}.pdf"
 
     translator = service_map[service]
     if page_range != "指定页":
