@@ -16,6 +16,11 @@ on:
 jobs:
   upload:
     runs-on: ubuntu-latest
+    permissions:
+      # 查询/下载 actions artifacts 需要 actions:read
+      actions: read
+      # gh release upload 需要 contents:write
+      contents: write
     steps:
       - name: Download and upload artifacts to release v0.0.1
         env:
