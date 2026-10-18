@@ -1416,7 +1416,8 @@ def setup_gui(
         except Exception:
             print(
                 f"Error launching GUI using {addr}.\n"
-                "This may be caused by global mode of proxy software."
+                "可能原因：端口被其他 pdf2zh 实例占用（请在任务管理器中结束残留的\n"
+                "pdf2zh.exe 进程后重试），或代理软件的全局模式干扰了端口绑定。"
             )
             try:
                 demo.close()  # release the port so the next attempt can bind
