@@ -96,7 +96,10 @@ PY_PREFIX="$(dirname "$(dirname "$PY_EXE")")"
 echo "便携 Python: $PY_EXE"
 
 echo "==== 3/6 复制便携 Python → build/runtime ===="
-cp -r "$PY_PREFIX" build/runtime
+# -L 强制实体化: uv-python 下的 cpython-3.12-... 是指向 cpython-3.12.x-... 的
+# 符号链接, 不加 -L 时 build/runtime 只是一个链接, 脱离本机(如 CI test job /
+# 用户解压后)即失效; -L 同时把 bin/python3 等别名链接也实体化, 分发更稳
+cp -rL "$PY_PREFIX" build/runtime
 
 echo "==== 4/6 安装依赖 → build/site-packages ===="
 "$UV" pip install --python "$PY_EXE" --target build/site-packages .

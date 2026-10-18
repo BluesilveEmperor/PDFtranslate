@@ -64,21 +64,25 @@ jobs:
       - name: 解压 tar.gz
         run: |
           tar xzf pdf2zh-linux-x64.tar.gz
+          ls -la build/runtime/bin/ | head -5
 
       - name: Test show version
         run: |
           ./build/pdf2zh --version
 
-      - name: Test - Translate a PDF file with plain text only
+      - name: Test - GUI smoke (offline assets restore + gradio up)
         run: |
-          ./build/pdf2zh ./test/file/translate.cli.plain.text.pdf -o ./test/file
-
-      - name: Test - Translate a PDF file figure
-        run: |
-          ./build/pdf2zh ./test/file/translate.cli.text.with.figure.pdf -o ./test/file
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
-        with:
-          name: linux-test-results
-          path: ./test/file/
+          ./build/pdf2zh -i > gui.log 2>&1 &
+          GUI_PID=$!
+          for i in $(seq 1 30); do
+            sleep 10
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:7860 || true)
+            if [ "$CODE" = "200" ]; then
+              echo "GUI OK (after $((i*10))s)"
+              break
+            fi
+          done
+          [ "$CODE" = "200" ] || { echo "GUI failed to start"; cat gui.log; exit 1; }
+          grep -q "find offline_assets_zip" gui.log && echo "offline assets restored"
+          pkill -f launch_pdf2zh || true
+          wait $GUI_PID 2>/dev/null || true

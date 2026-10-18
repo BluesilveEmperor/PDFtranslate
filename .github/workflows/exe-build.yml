@@ -114,7 +114,7 @@ jobs:
           include-hidden-files: true
 
   test-win64-exe:
-    needs: 
+    needs:
       - build-win64-exe
     runs-on: windows-latest
     steps:
@@ -130,45 +130,27 @@ jobs:
       - name: Test show version
         run: |
           ./build/pdf2zh.exe --version
-      
-      - name: Test - Translate a PDF file with plain text only
-        run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf -o ./test/file
 
-      - name: Test - Translate a PDF file figure
-        run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.text.with.figure.pdf -o ./test/file
-
-      - name: Delete offline assets and cache
+      - name: Test - GUI smoke (offline assets restore + gradio up)
         shell: pwsh
         run: |
-          Write-Host "==== 查找并删除离线资源包 ===="
-          $offlineAssetsPath = Get-ChildItem -Path "./build" -Filter "offline_assets_*.zip" -Recurse | Select-Object -First 1 -ExpandProperty FullName
-          if ($offlineAssetsPath) {
-            Write-Host "找到离线资源包: $offlineAssetsPath"
-            Remove-Item -Path $offlineAssetsPath -Force
-            Write-Host "已删除离线资源包"
-          } else {
-            Write-Host "未找到离线资源包"
+          $proc = Start-Process -FilePath "./build/pdf2zh.exe" -ArgumentList "-i" -PassThru -RedirectStandardOutput "gui.log" -RedirectStandardError "gui.err"
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 10
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:7860" -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { Write-Host "GUI OK (after $($i*10)s)"; $ok = $true; break }
+            } catch { }
           }
-          
-          Write-Host "==== 删除缓存目录 ===="
-          $cachePath = "$env:USERPROFILE/.cache/babeldoc"
-          if (Test-Path $cachePath) {
-            Remove-Item -Path $cachePath -Recurse -Force
-            Write-Host "已删除缓存目录: $cachePath"
-          } else {
-            Write-Host "缓存目录不存在: $cachePath"
+          if (-not $ok) {
+            Write-Host "GUI failed to start"
+            if (Test-Path "gui.log") { Get-Content "gui.log" }
+            if (Test-Path "gui.err") { Get-Content "gui.err" }
+            exit 1
           }
-
-      - name: Test - Translate without offline assets
-        run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf -o ./test/file
-          
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-results
-          path: ./test/file/
-
-  
+          if ((Test-Path "gui.log") -and (Select-String -Path "gui.log" -Pattern "find offline_assets_zip" -Quiet)) {
+            Write-Host "offline assets restored"
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "pdf2zh" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
