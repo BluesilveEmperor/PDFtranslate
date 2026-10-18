@@ -374,7 +374,7 @@ def translate_file(
             )
             _envs[k] = real_keys
 
-    print(f"Files before translation: {os.listdir(output)}")
+    logger.debug("Files before translation: %s", os.listdir(output))
 
     def progress_bar(t: tqdm.tqdm):
         desc = getattr(t, "desc", "Translating...")
@@ -433,7 +433,7 @@ def translate_file(
     except CancelledError:
         del cancellation_event_map[session_id]
         raise gr.Error("Translation cancelled")
-    print(f"Files after translation: {os.listdir(output)}")
+    logger.debug("Files after translation: %s", os.listdir(output))
 
     if not file_mono.exists() or not file_dual.exists():
         raise gr.Error("No output")
@@ -966,19 +966,20 @@ def parse_user_passwd(file_path: str) -> tuple:
     content = ""
     if not file_path:
         return tuple_list, content
-    if len(file_path) == 2:
+    if len(file_path) == 2 and file_path[1]:
         try:
             with open(file_path[1], "r", encoding="utf-8") as file:
                 content = file.read()
         except FileNotFoundError:
-            print(f"Error: File '{file_path[1]}' not found.")
-    try:
-        with open(file_path[0], "r", encoding="utf-8") as file:
-            tuple_list = [
-                tuple(line.strip().split(",")) for line in file if line.strip()
-            ]
-    except FileNotFoundError:
-        print(f"Error: File '{file_path[0]}' not found.")
+            logger.warning("Auth content file not found: %s", file_path[1])
+    if file_path[0]:
+        try:
+            with open(file_path[0], "r", encoding="utf-8") as file:
+                tuple_list = [
+                    tuple(line.strip().split(",")) for line in file if line.strip()
+                ]
+        except FileNotFoundError:
+            logger.warning("Auth file not found: %s", file_path[0])
     return tuple_list, content
 
 
@@ -1029,6 +1030,13 @@ def setup_gui(
     auth_kwargs = {}
     if len(user_list) > 0:
         auth_kwargs = {"auth": user_list, "auth_message": html}
+
+    # Compact startup banner for the console window
+    print(
+        f"\n  PDFMathTranslate v{__version__}"
+        f"\n  界面地址: http://localhost:{server_port}"
+        "\n  浏览器未自动打开时请手动访问；按 Ctrl+C 停止服务\n"
+    )
 
     if flag_demo:
         threading.Thread(

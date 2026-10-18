@@ -332,6 +332,8 @@ def main(args: Optional[List[str]] = None) -> int:
     # disable httpx, openai, httpcore, http11 logs
     logging.getLogger("httpx").setLevel("CRITICAL")
     logging.getLogger("httpx").propagate = False
+    logging.getLogger("httpx2").setLevel("CRITICAL")
+    logging.getLogger("httpx2").propagate = False
     logging.getLogger("openai").setLevel("CRITICAL")
     logging.getLogger("openai").propagate = False
     logging.getLogger("httpcore").setLevel("CRITICAL")

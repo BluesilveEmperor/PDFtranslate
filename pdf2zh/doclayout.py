@@ -122,7 +122,10 @@ class OnnxModel(DocLayoutModel):
         self.model = onnxruntime.InferenceSession(
             model_path, sess_options, providers=providers
         )
-        logger.info("ONNX Runtime providers: %s", self.model.get_providers())
+        logger.info(
+            "Layout model ready (%s)",
+            ", ".join(self.model.get_providers()),
+        )
 
     @staticmethod
     def from_pretrained():

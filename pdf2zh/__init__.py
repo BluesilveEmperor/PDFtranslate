@@ -6,6 +6,16 @@ except ImportError:
     import bitstring
     bitstring.BitStream = BitArray
 
+# babeldoc 在 site-packages 下 import 时会 print("not in git repo")，
+# 该输出由 babeldoc.const 触发、被各子模块延迟加载。
+# 这里在静音窗口内显式预加载，保持终端干净
+import contextlib
+import io
+
+with contextlib.redirect_stdout(io.StringIO()):
+    import babeldoc  # noqa: F401
+    import babeldoc.const  # noqa: F401
+
 import logging
 
 log = logging.getLogger(__name__)
