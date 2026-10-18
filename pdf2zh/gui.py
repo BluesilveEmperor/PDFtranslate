@@ -109,7 +109,7 @@ _MODEL_ICON_DIR = _ICON_DIR / "model_icons"
 # 服务名 → 图标文件名（不含扩展名）
 SERVICE_ICON_MAP = {
     "Google": "google",
-    "Bing": "google",
+    "Bing": "bing",
     "OpenAI": "openai",
     "AzureOpenAI": "azure",
     "Zhipu": "zhipu",
@@ -159,11 +159,12 @@ MODEL_ICON_KEYWORDS = [
 ICON_TINT = "#165DFF"
 
 
-def load_vendor_icon(icon_name: str, size: int = 20) -> str:
+def load_vendor_icon(icon_name: str) -> str:
     """渲染厂商 SVG 图标为 base64 <img>；currentColor 替换为主题色。
 
-    品牌色（如 longcat 的 #29E154、渐变填充）保持原样。
-    图标缺失时返回空串。
+    尺寸由 CSS 的 .vendor-icon 类控制（对抗 Gradio preflight 的
+    img display:block，保证与文字同行）。品牌色（如 longcat 的
+    #29E154、Bing 渐变）保持原样。图标缺失时返回空串。
     """
     if not icon_name:
         return ""
@@ -171,30 +172,29 @@ def load_vendor_icon(icon_name: str, size: int = 20) -> str:
         svg = (_MODEL_ICON_DIR / f"{icon_name}.svg").read_text(
             encoding="utf-8"
         )
-        # cc-switch 图标用 currentColor，HarmonyOS 图标用 #000000，统一着主题色
+        # cc-switch 图标用 currentColor，单色图标用 #000000，统一着主题色
         svg = svg.replace("currentColor", ICON_TINT)
         svg = svg.replace('fill="#000000"', f'fill="{ICON_TINT}"')
         b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
         return (
-            f'<img class="vendor-icon" style="width:{size}px;height:{size}px;'
-            f'vertical-align:-3px" '
+            f'<img class="vendor-icon" '
             f'src="data:image/svg+xml;base64,{b64}" alt=""/>'
         )
     except OSError:
         return ""
 
 
-def service_icon_html(service_name: str, size: int = 17) -> str:
+def service_icon_html(service_name: str) -> str:
     """服务的厂商图标 HTML。"""
-    return load_vendor_icon(SERVICE_ICON_MAP.get(service_name, ""), size)
+    return load_vendor_icon(SERVICE_ICON_MAP.get(service_name, ""))
 
 
-def model_icon_html(model_id: str, size: int = 17) -> str:
+def model_icon_html(model_id: str) -> str:
     """按模型名子串匹配厂商图标 HTML。"""
     mid = str(model_id or "").lower()
     for kw, icon in MODEL_ICON_KEYWORDS:
         if kw in mid:
-            return load_vendor_icon(icon, size)
+            return load_vendor_icon(icon)
     return ""
 
 
@@ -819,15 +819,27 @@ custom_css = """
         padding: 0 !important;
         display: inline-block !important;
         text-transform: uppercase;
-        vertical-align: middle;
+
     }
     /* Icon inline with section labels */
+    /* NOTE: Gradio's Tailwind preflight sets .gradio-container img
+       { display: block }, which puts icons on their own line. The
+       inline-block here is required to keep icon + label on one row.
+       vertical-align:middle measured best (within 1px of text center). */
     .section-icon {
-        width: 15px !important;
-        height: 15px !important;
-        vertical-align: -2px;
-        margin-right: 5px;
-        opacity: 0.85;
+        width: 20px !important;
+        height: 20px !important;
+        display: inline-block !important;
+        vertical-align: middle;
+        margin-right: 6px;
+        opacity: 0.9;
+    }
+    .vendor-icon {
+        width: 24px !important;
+        height: 24px !important;
+        display: inline-block !important;
+        vertical-align: middle;
+        margin-right: 6px;
     }
     .icon-heading {
         margin: 2px 0 0 0 !important;
