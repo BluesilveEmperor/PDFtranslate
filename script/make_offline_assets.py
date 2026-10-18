@@ -16,6 +16,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+# conda run 下 stdout 可能是 GBK, 中文输出在 git-bash 里会乱码, 强制 UTF-8
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 from babeldoc.assets import assets as A
 
 
