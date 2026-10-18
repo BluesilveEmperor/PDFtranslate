@@ -2,7 +2,7 @@
 set -e
 PY_VER="3.12.9"
 CONDA_SP="/c/Users/HW/miniconda3/envs/pdf2zh_build/Lib/site-packages"
-CONDA_BIN="/c/Users/HW/miniconda3/Scripts/conda.exe"
+PY_EXE="/c/Users/HW/miniconda3/envs/pdf2zh_build/python.exe"
 
 echo "==== 1/7 创建目录 ===="
 rm -rf build dep_build
@@ -35,8 +35,9 @@ cp script/_pystand_static.int build/_pystand_static.int
 
 echo "==== 7/7 生成离线资源 ===="
 # 注: babeldoc --generate-offline-assets 需要联网校验(本机直连 HuggingFace 不通),
-# 改用本地缓存打包: 从 ~/.cache/babeldoc/ 校验并打 zip, 无需联网
-$CONDA_BIN run -n pdf2zh_build python script/make_offline_assets.py build
+# 改用本地缓存打包: 从 ~/.cache/babeldoc/ 校验并打 zip, 无需联网。
+# 不用 conda run 转发输出(它会按 GBK 重编码导致中文乱码), 直接调 env 的 python.exe
+"$PY_EXE" script/make_offline_assets.py build
 
 echo ""
 echo "==== 构建完成！===="
