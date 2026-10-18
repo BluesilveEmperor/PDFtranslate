@@ -1,5 +1,6 @@
 import sys
 import os
+import base64
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
@@ -60,6 +61,43 @@ logger = logging.getLogger(__name__)
 
 # Avoid Gradio startup telemetry requests to overseas endpoints
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+
+# ---------------------------------------------------------------------------
+# HarmonyOS icon set (inline base64, single-color SVG)
+# ---------------------------------------------------------------------------
+_ICON_DIR = Path(__file__).parent / "gui_assets"
+
+
+def load_icon(name: str, color: str = "#165DFF") -> str:
+    """Read an SVG icon from gui_assets and return a base64 <img> tag.
+
+    Icons are monochrome (#000000); the fill color is replaced so the icon
+    can follow the theme. Base64 <img> avoids element-id collisions between
+    multiple inlined SVGs on the same page.
+    """
+    try:
+        svg = (_ICON_DIR / f"{name}.svg").read_text(encoding="utf-8")
+        svg = svg.replace('fill="#000000"', f'fill="{color}"')
+        b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        return (
+            f'<img class="section-icon" '
+            f'src="data:image/svg+xml;base64,{b64}" alt=""/>'
+        )
+    except OSError:
+        return ""
+
+
+def _favicon_head() -> str:
+    """Return a <link rel=icon> tag with an SVG data URI, themed blue."""
+    try:
+        svg = (_ICON_DIR / "ic_normal_white_grid_pdf.svg").read_text(
+            encoding="utf-8"
+        )
+        svg = svg.replace('fill="#000000"', 'fill="#165DFF"')
+        b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        return f'<link rel="icon" href="data:image/svg+xml;base64,{b64}">'
+    except OSError:
+        return ""
 
 
 class _LazyModel:
@@ -557,6 +595,58 @@ custom_css = """
     .pdf-canvas canvas {
         width: 100%;
     }
+
+    /* ===== Compact layout: higher space efficiency ===== */
+    /* Shrink section paddings */
+    .block {
+        padding-top: var(--spacing-sm) !important;
+        padding-bottom: var(--spacing-sm) !important;
+    }
+    .form {
+        padding: var(--spacing-sm) !important;
+        gap: var(--spacing-sm) !important;
+    }
+    .gap {
+        gap: var(--spacing-sm) !important;
+    }
+    /* Compact section labels (replace big H2 headings) */
+    .section-label {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.5px;
+        color: #555 !important;
+        margin: 2px 0 0 0 !important;
+        padding: 0 !important;
+        display: inline-block !important;
+        text-transform: uppercase;
+        vertical-align: middle;
+    }
+    /* Icon inline with section labels */
+    .section-icon {
+        width: 15px !important;
+        height: 15px !important;
+        vertical-align: -2px;
+        margin-right: 5px;
+        opacity: 0.85;
+    }
+    .icon-heading {
+        margin: 2px 0 0 0 !important;
+        padding: 0 !important;
+        line-height: 1.6;
+    }
+    /* Compact top title */
+    .top-title {
+        font-size: 18px !important;
+        font-weight: 700 !important;
+    }
+    /* Slimmer inputs */
+    .input-file {
+        min-height: 90px !important;
+    }
+    /* Footer tech details centered */
+    .tech-details {
+        font-size: 12px !important;
+    }
     """
 
 demo_recaptcha = """
@@ -585,18 +675,28 @@ cancellation_event_map = {}
 with gr.Blocks(
     title="PDFMathTranslate - PDF Translation with preserved formats",
     theme=gr.themes.Default(
-        primary_hue=custom_blue, spacing_size="md", radius_size="lg"
+        primary_hue=custom_blue, spacing_size="sm", radius_size="md"
     ),
     css=custom_css,
-    head=demo_recaptcha if flag_demo else "",
+    head=(
+        (_favicon_head() + demo_recaptcha) if flag_demo else _favicon_head()
+    ),
 ) as demo:
     gr.Markdown(
-        "# [PDFMathTranslate @ GitHub](https://github.com/Byaidu/PDFMathTranslate)"
+        f"{load_icon('ic_public_translate_e2c')} "
+        "<span class='top-title'>[PDFMathTranslate](https://github.com/BluesilveEmperor/PDFtranslate)</span>"
+        " <span class='secondary-text'>— PDF translation with preserved formulas &amp; layout</span>",
+        elem_classes=["icon-heading"],
     )
 
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("## File | < 5 MB" if flag_demo else "## File")
+            gr.Markdown(
+                f"{load_icon('ic_public_file')} "
+                '<span class="section-label">File</span>'
+                + (" | < 5 MB" if flag_demo else ""),
+                elem_classes=["icon-heading"],
+            )
             file_type = gr.Radio(
                 choices=["File", "Link"],
                 label="Type",
@@ -614,7 +714,11 @@ with gr.Blocks(
                 visible=False,
                 interactive=True,
             )
-            gr.Markdown("## Option")
+            gr.Markdown(
+                f"{load_icon('ic_public_settings')} "
+                '<span class="section-label">Options</span>',
+                elem_classes=["icon-heading"],
+            )
             service = gr.Dropdown(
                 label="Service",
                 choices=enabled_services,
@@ -723,7 +827,12 @@ with gr.Blocks(
                 ConfigManager.set("PDF2ZH_VFONT", value)
                 return value
 
-            output_title = gr.Markdown("## Translated", visible=False)
+            output_title = gr.Markdown(
+                f"{load_icon('ic_public_download')} "
+                '<span class="section-label">Translated</span>',
+                visible=False,
+                elem_classes=["icon-heading"],
+            )
             output_file_mono = gr.File(
                 label="Download Translation (Mono)", visible=False
             )
@@ -734,12 +843,13 @@ with gr.Blocks(
                 label="reCAPTCHA Response", elem_id="verify", visible=False
             )
             recaptcha_box = gr.HTML('<div id="recaptcha-box"></div>')
-            translate_btn = gr.Button("Translate", variant="primary")
-            cancellation_btn = gr.Button("Cancel", variant="secondary")
-            tech_details_tog = gr.Markdown(
-                tech_details_string,
-                elem_classes=["secondary-text"],
-            )
+            with gr.Row():
+                translate_btn = gr.Button(
+                    "Translate", variant="primary", scale=4
+                )
+                cancellation_btn = gr.Button(
+                    "Cancel", variant="secondary", scale=1
+                )
             page_range.select(on_select_page, page_range, page_input)
             service.select(
                 on_select_service,
@@ -769,8 +879,17 @@ with gr.Blocks(
             )
 
         with gr.Column(scale=2):
-            gr.Markdown("## Preview")
-            preview = PDF(label="Document Preview", visible=True, height=2000)
+            gr.Markdown(
+                f"{load_icon('ic_public_detail')} "
+                '<span class="section-label">Preview</span>',
+                elem_classes=["icon-heading"],
+            )
+            preview = PDF(label="Document Preview", visible=True, height=760)
+
+    tech_details_tog = gr.Markdown(
+        tech_details_string,
+        elem_classes=["secondary-text", "tech-details"],
+    )
 
     # Event handlers
     file_input.upload(
