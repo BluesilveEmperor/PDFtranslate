@@ -177,19 +177,19 @@ def load_vendor_icon(icon_name: str, size: int = 20) -> str:
         b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
         return (
             f'<img class="vendor-icon" style="width:{size}px;height:{size}px;'
-            f'display:block" '
+            f'vertical-align:-3px" '
             f'src="data:image/svg+xml;base64,{b64}" alt=""/>'
         )
     except OSError:
         return ""
 
 
-def service_icon_html(service_name: str, size: int = 20) -> str:
+def service_icon_html(service_name: str, size: int = 17) -> str:
     """服务的厂商图标 HTML。"""
     return load_vendor_icon(SERVICE_ICON_MAP.get(service_name, ""), size)
 
 
-def model_icon_html(model_id: str, size: int = 20) -> str:
+def model_icon_html(model_id: str, size: int = 17) -> str:
     """按模型名子串匹配厂商图标 HTML。"""
     mid = str(model_id or "").lower()
     for kw, icon in MODEL_ICON_KEYWORDS:
@@ -834,23 +834,7 @@ custom_css = """
         padding: 0 !important;
         line-height: 1.6;
     }
-    /* 图标槽：跳过 label 行，与下拉框输入行垂直居中对齐 */
-    .icon-slot {
-        min-width: 28px !important;
-        padding-top: 30px !important;   /* label(约22px) + 上间隙 */
-        padding-bottom: 8px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        flex-grow: 0 !important;
-        flex-shrink: 0 !important;
-    }
-    .icon-slot:empty {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-        min-height: 0 !important;
-    }
-    .icon-slot img {
+    .icon-heading img {
         border-radius: 4px;
     }
     /* Compact top title */
@@ -931,25 +915,25 @@ with gr.Blocks(
                 '<span class="section-label">选项</span>',
                 elem_classes=["icon-heading"],
             )
-            with gr.Row():
-                service_icon = gr.HTML(
-                    service_icon_html(enabled_services[0]),
-                    visible=True,
-                    elem_classes=["icon-slot"],
-                )
-                service = gr.Dropdown(
-                    label="翻译服务",
-                    choices=enabled_services,
-                    value=enabled_services[0],
-                    scale=5,
-                )
-            # 模型选择行：厂商图标 + 可搜索下拉 + 在线获取按钮
+            service_label_md = gr.Markdown(
+                f"{service_icon_html(enabled_services[0])} "
+                '<span class="section-label">翻译服务</span>',
+                elem_classes=["icon-heading"],
+            )
+            service = gr.Dropdown(
+                choices=enabled_services,
+                value=enabled_services[0],
+                show_label=False,
+                interactive=True,
+            )
+            # 模型选择行：图标标签 + 可搜索下拉 + 在线获取按钮
+            model_label_md = gr.Markdown(
+                '<span class="section-label">模型</span>',
+                visible=False,
+                elem_classes=["icon-heading"],
+            )
             with gr.Row() as model_row:
-                model_icon = gr.HTML(
-                    "", elem_classes=["icon-slot"], visible=False
-                )
                 model_dd = gr.Dropdown(
-                    label="模型",
                     choices=[],
                     value=None,
                     allow_custom_value=True,
@@ -957,6 +941,7 @@ with gr.Blocks(
                     interactive=True,
                     visible=False,
                     filterable=True,
+                    show_label=False,
                 )
                 fetch_models_btn = gr.Button(
                     "获取模型列表",
@@ -1041,7 +1026,7 @@ with gr.Blocks(
                     "key_env": "",
                     "base_env": "",
                 }
-                model_value, model_label = "", ""
+                model_value = ""
                 for i, env in enumerate(translator.envs.items()):
                     if i >= 3:  # 仅 3 个动态槽位，其余（stream 等）不展示
                         break
@@ -1055,7 +1040,7 @@ with gr.Blocks(
                     is_base = "BASE_URL" in upper or "HOST" in upper
                     if is_model:
                         layout["model_slot"] = i
-                        model_value, model_label = value, str(label)
+                        model_value = value
                     if is_key:
                         layout["key_slot"] = i
                         layout["key_env"] = str(label)
@@ -1080,13 +1065,22 @@ with gr.Blocks(
                 can_fetch = service in OPENAI_COMPAT and has_model
                 _model_dd = gr.update(
                     visible=has_model,
-                    label=model_label or "模型",
                     value=model_value or None,
                     choices=[],
                 )
                 _fetch_btn = gr.update(visible=can_fetch)
-                _model_icon = model_icon_html(model_value) if has_model else ""
-                _service_icon = service_icon_html(service)
+                # 图标嵌入 Markdown 标签（与"文件/选项"标题同一渲染路径）
+                if has_model:
+                    _model_label_md = (
+                        f"{model_icon_html(model_value)} "
+                        '<span class="section-label">模型</span>'
+                    )
+                else:
+                    _model_label_md = gr.update(visible=False)
+                _service_label_md = (
+                    f"{service_icon_html(service)} "
+                    '<span class="section-label">翻译服务</span>'
+                )
                 return (
                     _envs[0],
                     _envs[1],
@@ -1094,8 +1088,8 @@ with gr.Blocks(
                     _envs[3],
                     _model_dd,
                     _fetch_btn,
-                    _model_icon,
-                    _service_icon,
+                    _model_label_md,
+                    _service_label_md,
                     layout,
                 )
 
@@ -1179,8 +1173,8 @@ with gr.Blocks(
                     envs[3],
                     model_dd,
                     fetch_models_btn,
-                    model_icon,
-                    service_icon,
+                    model_label_md,
+                    service_label_md,
                     env_layout,
                 ],
             )
@@ -1190,9 +1184,12 @@ with gr.Blocks(
                 outputs=[envs[0], envs[1], envs[2]],
             )
             model_dd.change(
-                lambda v: model_icon_html(v),
+                lambda v: (
+                    f"{model_icon_html(v)} "
+                    '<span class="section-label">模型</span>'
+                ),
                 inputs=model_dd,
-                outputs=model_icon,
+                outputs=model_label_md,
             )
             fetch_models_btn.click(
                 on_fetch_models,
