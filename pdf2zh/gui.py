@@ -957,7 +957,7 @@ with gr.Blocks(
                 )
                 fetch_models_btn = gr.Button(
                     "获取模型列表",
-                    size="sm",
+
                     scale=2,
                     visible=False,
                 )
