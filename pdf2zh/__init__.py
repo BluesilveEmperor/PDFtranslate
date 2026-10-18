@@ -1,3 +1,14 @@
+# 强制 stdout/stderr 用 UTF-8：启动横幅等中文输出在非中文 Windows（cp1252）
+# 且输出被重定向（CI、管道）时会 UnicodeEncodeError 直接崩溃
+import sys as _sys
+
+for _s in (_sys.stdout, _sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
 # 兼容 babeldoc：bitstring 4.x/5.x 移除了 BitStream，babeldoc 仍 import 它
 try:
     from bitstring import BitStream  # noqa: F401
