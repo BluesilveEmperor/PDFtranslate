@@ -55,7 +55,7 @@ from pdf2zh.translator import (
     X302AITranslator,
 )
 from babeldoc.docvision.doclayout import OnnxModel
-from babeldoc import __version__ as babeldoc_version
+
 
 logger = logging.getLogger(__name__)
 
@@ -148,25 +148,46 @@ service_map: dict[str, BaseTranslator] = {
 }
 
 # The following variables associate strings with specific languages
+# 键为界面显示名（中文），值为传给翻译服务的语言代码
 lang_map = {
-    "Simplified Chinese": "zh",
-    "Traditional Chinese": "zh-TW",
-    "English": "en",
-    "French": "fr",
-    "German": "de",
-    "Japanese": "ja",
-    "Korean": "ko",
-    "Russian": "ru",
-    "Spanish": "es",
-    "Italian": "it",
+    "简体中文": "zh",
+    "繁體中文": "zh-TW",
+    "英语": "en",
+    "法语": "fr",
+    "德语": "de",
+    "日语": "ja",
+    "韩语": "ko",
+    "俄语": "ru",
+    "西班牙语": "es",
+    "意大利语": "it",
 }
+
+# 兼容旧配置：历史版本以英文语言名存储
+_LANG_EN2ZH = {
+    "Simplified Chinese": "简体中文",
+    "Traditional Chinese": "繁體中文",
+    "English": "英语",
+    "French": "法语",
+    "German": "德语",
+    "Japanese": "日语",
+    "Korean": "韩语",
+    "Russian": "俄语",
+    "Spanish": "西班牙语",
+    "Italian": "意大利语",
+}
+
+
+def _norm_lang(name: str) -> str:
+    """把旧英文语言名归一化为中文显示名。"""
+    return _LANG_EN2ZH.get(name, name)
+
 
 # The following variable associate strings with page ranges
 page_map = {
-    "All": None,
-    "First": [0],
-    "First 5 pages": list(range(0, 5)),
-    "Others": None,
+    "全部": None,
+    "首页": [0],
+    "前 5 页": list(range(0, 5)),
+    "指定页": None,
 }
 
 # Check if this is a public demo, which has resource limits
@@ -179,8 +200,8 @@ if ConfigManager.get("PDF2ZH_DEMO"):
         "Google": GoogleTranslator,
     }
     page_map = {
-        "First": [0],
-        "First 20 pages": list(range(0, 20)),
+        "首页": [0],
+        "前 20 页": list(range(0, 20)),
     }
     client_key = ConfigManager.get("PDF2ZH_CLIENT_KEY")
     server_key = ConfigManager.get("PDF2ZH_SERVER_KEY")
@@ -250,7 +271,7 @@ def download_with_limit(url: str, save_path: str, size_limit: int) -> str:
             for chunk in response.iter_content(chunk_size=chunk_size):
                 total_size += len(chunk)
                 if size_limit and total_size > size_limit:
-                    raise gr.Error("Exceeds file size limit")
+                    raise gr.Error("文件超出大小限制")
                 file.write(chunk)
     return save_path / filename
 
@@ -326,18 +347,18 @@ def translate_file(
     if flag_demo and not verify_recaptcha(recaptcha_response):
         raise gr.Error("reCAPTCHA fail")
 
-    progress(0, desc="Starting translation...")
+    progress(0, desc="正在开始翻译…")
 
     output = Path("pdf2zh_files")
     output.mkdir(parents=True, exist_ok=True)
 
-    if file_type == "File":
+    if file_type == "本地文件":
         if not file_input:
-            raise gr.Error("No input")
+            raise gr.Error("请先选择或输入文件")
         file_path = shutil.copy(file_input, output)
     else:
         if not link_input:
-            raise gr.Error("No input")
+            raise gr.Error("请先输入文件链接")
         file_path = download_with_limit(
             link_input,
             output,
@@ -350,7 +371,7 @@ def translate_file(
     file_dual = output / f"{filename}-dual.pdf"
 
     translator = service_map[service]
-    if page_range != "Others":
+    if page_range != "指定页":
         selected_page = page_map[page_range]
     else:
         selected_page = []
@@ -377,9 +398,9 @@ def translate_file(
     logger.debug("Files before translation: %s", os.listdir(output))
 
     def progress_bar(t: tqdm.tqdm):
-        desc = getattr(t, "desc", "Translating...")
+        desc = getattr(t, "desc", "翻译中…")
         if desc == "":
-            desc = "Translating..."
+            desc = "翻译中…"
         progress(t.n / t.total, desc=desc)
 
     try:
@@ -432,13 +453,13 @@ def translate_file(
         )
     except CancelledError:
         del cancellation_event_map[session_id]
-        raise gr.Error("Translation cancelled")
+        raise gr.Error("翻译已取消")
     logger.debug("Files after translation: %s", os.listdir(output))
 
     if not file_mono.exists() or not file_dual.exists():
-        raise gr.Error("No output")
+        raise gr.Error("翻译失败：未生成输出文件")
 
-    progress(1.0, desc="Translation complete!")
+    progress(1.0, desc="翻译完成！")
 
     return (
         str(file_mono),
@@ -660,20 +681,13 @@ demo_recaptcha = """
     </script>
     """
 
-tech_details_string = f"""
-                    <summary>Technical details</summary>
-                    - GitHub: <a href="https://github.com/Byaidu/PDFMathTranslate">Byaidu/PDFMathTranslate</a><br>
-                    - BabelDOC: <a href="https://github.com/funstory-ai/BabelDOC">funstory-ai/BabelDOC</a><br>
-                    - GUI by: <a href="https://github.com/reycn">Rongxin</a><br>
-                    - pdf2zh Version: {__version__} <br>
-                    - BabelDOC Version: {babeldoc_version}
-                """
+
 cancellation_event_map = {}
 
 
 # The following code creates the GUI
 with gr.Blocks(
-    title="PDFMathTranslate - PDF Translation with preserved formats",
+    title="PDFMathTranslate — PDF 翻译",
     theme=gr.themes.Default(
         primary_hue=custom_blue, spacing_size="sm", radius_size="md"
     ),
@@ -685,7 +699,7 @@ with gr.Blocks(
     gr.Markdown(
         f"{load_icon('ic_public_translate_e2c')} "
         "<span class='top-title'>[PDFMathTranslate](https://github.com/BluesilveEmperor/PDFtranslate)</span>"
-        " <span class='secondary-text'>— PDF translation with preserved formulas &amp; layout</span>",
+        " <span class='secondary-text'>— 保留公式与排版的 PDF 翻译</span>",
         elem_classes=["icon-heading"],
     )
 
@@ -693,34 +707,34 @@ with gr.Blocks(
         with gr.Column(scale=1):
             gr.Markdown(
                 f"{load_icon('ic_public_file')} "
-                '<span class="section-label">File</span>'
+                '<span class="section-label">文件</span>'
                 + (" | < 5 MB" if flag_demo else ""),
                 elem_classes=["icon-heading"],
             )
             file_type = gr.Radio(
-                choices=["File", "Link"],
-                label="Type",
-                value="File",
+                choices=["本地文件", "链接"],
+                label="输入方式",
+                value="本地文件",
             )
             file_input = gr.File(
-                label="File",
+                label="文件",
                 file_count="single",
                 file_types=[".pdf", ".doc", ".docx"],
                 type="filepath",
                 elem_classes=["input-file"],
             )
             link_input = gr.Textbox(
-                label="Link",
+                label="链接",
                 visible=False,
                 interactive=True,
             )
             gr.Markdown(
                 f"{load_icon('ic_public_settings')} "
-                '<span class="section-label">Options</span>',
+                '<span class="section-label">选项</span>',
                 elem_classes=["icon-heading"],
             )
             service = gr.Dropdown(
-                label="Service",
+                label="翻译服务",
                 choices=enabled_services,
                 value=enabled_services[0],
             )
@@ -734,48 +748,52 @@ with gr.Blocks(
                 )
             with gr.Row():
                 lang_from = gr.Dropdown(
-                    label="Translate from",
+                    label="源语言",
                     choices=lang_map.keys(),
-                    value=ConfigManager.get("PDF2ZH_LANG_FROM", "English"),
+                    value=_norm_lang(
+                        ConfigManager.get("PDF2ZH_LANG_FROM", "英语")
+                    ),
                 )
                 lang_to = gr.Dropdown(
-                    label="Translate to",
+                    label="目标语言",
                     choices=lang_map.keys(),
-                    value=ConfigManager.get("PDF2ZH_LANG_TO", "Simplified Chinese"),
+                    value=_norm_lang(
+                        ConfigManager.get("PDF2ZH_LANG_TO", "简体中文")
+                    ),
                 )
             page_range = gr.Radio(
                 choices=page_map.keys(),
-                label="Pages",
+                label="页面范围",
                 value=list(page_map.keys())[0],
             )
 
             page_input = gr.Textbox(
-                label="Page range",
+                label="页码范围",
                 visible=False,
                 interactive=True,
             )
 
-            with gr.Accordion("Open for More Experimental Options!", open=False):
-                gr.Markdown("#### Experimental")
+            with gr.Accordion("更多实验选项", open=False):
+                gr.Markdown("#### 实验性功能")
                 threads = gr.Textbox(
-                    label="number of threads", interactive=True, value="4"
+                    label="线程数", interactive=True, value="4"
                 )
                 skip_subset_fonts = gr.Checkbox(
-                    label="Skip font subsetting", interactive=True, value=False
+                    label="跳过字体子集化", interactive=True, value=False
                 )
                 ignore_cache = gr.Checkbox(
-                    label="Ignore cache", interactive=True, value=False
+                    label="忽略缓存", interactive=True, value=False
                 )
                 vfont = gr.Textbox(
-                    label="Custom formula font regex (vfont)",
+                    label="自定义公式字体正则（vfont）",
                     interactive=True,
                     value=ConfigManager.get("PDF2ZH_VFONT", ""),
                 )
                 prompt = gr.Textbox(
-                    label="Custom Prompt for llm", interactive=True, visible=False
+                    label="自定义 Prompt（LLM）", interactive=True, visible=False
                 )
                 mode_choice = gr.Dropdown(
-                    label="Translation Mode",
+                    label="翻译模式",
                     choices=["fast", "precise"],
                     value="fast",
                     interactive=True,
@@ -813,12 +831,12 @@ with gr.Blocks(
 
             def on_select_filetype(file_type):
                 return (
-                    gr.update(visible=file_type == "File"),
-                    gr.update(visible=file_type == "Link"),
+                    gr.update(visible=file_type == "本地文件"),
+                    gr.update(visible=file_type == "链接"),
                 )
 
             def on_select_page(choice):
-                if choice == "Others":
+                if choice == "指定页":
                     return gr.update(visible=True)
                 else:
                     return gr.update(visible=False)
@@ -829,15 +847,15 @@ with gr.Blocks(
 
             output_title = gr.Markdown(
                 f"{load_icon('ic_public_download')} "
-                '<span class="section-label">Translated</span>',
+                '<span class="section-label">翻译结果</span>',
                 visible=False,
                 elem_classes=["icon-heading"],
             )
             output_file_mono = gr.File(
-                label="Download Translation (Mono)", visible=False
+                label="下载译文（单语）", visible=False
             )
             output_file_dual = gr.File(
-                label="Download Translation (Dual)", visible=False
+                label="下载译文（双语对照）", visible=False
             )
             recaptcha_response = gr.Textbox(
                 label="reCAPTCHA Response", elem_id="verify", visible=False
@@ -845,10 +863,10 @@ with gr.Blocks(
             recaptcha_box = gr.HTML('<div id="recaptcha-box"></div>')
             with gr.Row():
                 translate_btn = gr.Button(
-                    "Translate", variant="primary", scale=4
+                    "开始翻译", variant="primary", scale=4
                 )
                 cancellation_btn = gr.Button(
-                    "Cancel", variant="secondary", scale=1
+                    "取消", variant="secondary", scale=1
                 )
             page_range.select(on_select_page, page_range, page_input)
             service.select(
@@ -881,15 +899,10 @@ with gr.Blocks(
         with gr.Column(scale=2):
             gr.Markdown(
                 f"{load_icon('ic_public_detail')} "
-                '<span class="section-label">Preview</span>',
+                '<span class="section-label">预览</span>',
                 elem_classes=["icon-heading"],
             )
-            preview = PDF(label="Document Preview", visible=True, height=760)
-
-    tech_details_tog = gr.Markdown(
-        tech_details_string,
-        elem_classes=["secondary-text", "tech-details"],
-    )
+            preview = PDF(label="文档预览", visible=True, height=760)
 
     # Event handlers
     file_input.upload(
