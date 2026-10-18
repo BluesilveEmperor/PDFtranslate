@@ -548,6 +548,9 @@ def translate_file(
     file_raw = output / f"{filename}.pdf"
     file_mono = output / f"{filename}-mono.pdf"
     file_dual = output / f"{filename}-dual.pdf"
+    # 翻译产物统一加 Traned_ 前缀（replace 为原子覆盖，重译同名文件不留旧产物）
+    file_mono_out = output / f"Traned_{filename}-mono.pdf"
+    file_dual_out = output / f"Traned_{filename}-dual.pdf"
 
     translator = service_map[service]
     if page_range != "指定页":
@@ -633,17 +636,27 @@ def translate_file(
     except CancelledError:
         del cancellation_event_map[session_id]
         raise gr.Error("翻译已取消")
+    finally:
+        # 输出目录只保留翻译产物：删除上传/下载产生的源文件副本（原件在用户手里）。
+        # try/except 以容忍翻译中途取消时文件仍被占用（Windows 文件锁）。
+        try:
+            file_raw.unlink()
+        except OSError:
+            pass
     logger.debug("Files after translation: %s", os.listdir(output))
 
     if not file_mono.exists() or not file_dual.exists():
         raise gr.Error("翻译失败：未生成输出文件")
 
+    file_mono.replace(file_mono_out)
+    file_dual.replace(file_dual_out)
+
     progress(1.0, desc="翻译完成！")
 
     return (
-        str(file_mono),
-        str(file_mono),
-        str(file_dual),
+        str(file_mono_out),
+        str(file_mono_out),
+        str(file_dual_out),
         gr.update(visible=True),
         gr.update(visible=True),
         gr.update(visible=True),
