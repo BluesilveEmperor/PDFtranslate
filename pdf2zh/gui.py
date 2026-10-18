@@ -530,27 +530,43 @@ def translate_file(
 
     output = Path("pdf2zh_files")
     output.mkdir(parents=True, exist_ok=True)
+    # 中间产物（源文件副本与 -mono/-dual 输出）一律写入 .staging 隐藏子目录，
+    # 翻译成功后改名移入根目录，保证根目录自始至终只有 Traned_ 产物
+    staging = output / ".staging"
+    staging.mkdir(exist_ok=True)
 
     if file_type == "本地文件":
         if not file_input:
             raise gr.Error("请先选择或输入文件")
-        file_path = shutil.copy(file_input, output)
+        file_path = shutil.copy(file_input, staging)
     else:
         if not link_input:
             raise gr.Error("请先输入文件链接")
         file_path = download_with_limit(
             link_input,
-            output,
+            staging,
             5 * 1024 * 1024 if flag_demo else None,
         )
 
     filename = os.path.splitext(os.path.basename(file_path))[0]
-    file_raw = output / f"{filename}.pdf"
-    file_mono = output / f"{filename}-mono.pdf"
-    file_dual = output / f"{filename}-dual.pdf"
+    file_raw = staging / f"{filename}.pdf"
+    file_mono = staging / f"{filename}-mono.pdf"
+    file_dual = staging / f"{filename}-dual.pdf"
     # 翻译产物统一加前缀（replace 为原子覆盖，重译同名文件不留旧产物）
     file_mono_out = output / f"Traned_single_{filename}.pdf"
     file_dual_out = output / f"Traned_double_{filename}.pdf"
+
+    def clear_staging() -> None:
+        """清空并移除 .staging（容忍 Windows 文件锁）。"""
+        for p in staging.iterdir():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        try:
+            staging.rmdir()
+        except OSError:
+            pass
 
     translator = service_map[service]
     if page_range != "指定页":
@@ -616,7 +632,7 @@ def translate_file(
         kernel = KernelRegistry.get()
         request = TranslateRequest(
             files=[str(file_raw)],
-            output=str(output),
+            output=str(staging),
             pages=selected_page,
             lang_in=lang_from,
             lang_out=lang_to,
@@ -635,6 +651,7 @@ def translate_file(
         )
     except CancelledError:
         del cancellation_event_map[session_id]
+        clear_staging()
         raise gr.Error("翻译已取消")
     finally:
         # 输出目录只保留翻译产物：删除上传/下载产生的源文件副本（原件在用户手里）。
@@ -646,10 +663,12 @@ def translate_file(
     logger.debug("Files after translation: %s", os.listdir(output))
 
     if not file_mono.exists() or not file_dual.exists():
+        clear_staging()
         raise gr.Error("翻译失败：未生成输出文件")
 
     file_mono.replace(file_mono_out)
     file_dual.replace(file_dual_out)
+    clear_staging()
 
     progress(1.0, desc="翻译完成！")
 
