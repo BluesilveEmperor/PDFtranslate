@@ -1,0 +1,78 @@
+name: linux tar Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release Version (e.g., v1.0.0)'
+        required: true
+        type: string
+env:
+  RELEASE_VERSION: ${{ inputs.release_version }}
+jobs:
+  build-linux-tar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout babeldoc metadata
+        uses: actions/checkout@v6
+        with:
+          repository: funstory-ai/BabelDOC
+          path: babeldoctemp1234567
+          token: ${{ secrets.GITHUB_TOKEN }}
+          sparse-checkout: babeldoc/assets/embedding_assets_metadata.py
+      - name: Cached Assets
+        id: cache-assets
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/babeldoc
+          key: test-1-babeldoc-assets-${{ hashFiles('babeldoctemp1234567/babeldoc/assets/embedding_assets_metadata.py') }}
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 构建（build.sh 自动检测 Linux 平台）
+        env:
+          ASSETS_ALLOW_DOWNLOAD: "1"
+        run: |
+          bash build.sh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-tar
+          path: ./build
+          if-no-files-found: error
+          compression-level: 9
+          include-hidden-files: true
+
+  test-linux-tar:
+    needs:
+      - build-linux-tar
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-tar
+          path: ./build
+
+      - name: Test show version
+        run: |
+          chmod +x ./build/pdf2zh ./build/runtime/bin/python3.12
+          ./build/pdf2zh --version
+
+      - name: Test - Translate a PDF file with plain text only
+        run: |
+          ./build/pdf2zh ./test/file/translate.cli.plain.text.pdf -o ./test/file
+
+      - name: Test - Translate a PDF file figure
+        run: |
+          ./build/pdf2zh ./test/file/translate.cli.text.with.figure.pdf -o ./test/file
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-test-results
+          path: ./test/file/
