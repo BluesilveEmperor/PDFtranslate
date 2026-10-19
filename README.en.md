@@ -55,6 +55,202 @@ xattr -dr com.apple.quarantine build/
 - The first launch is slow (~30 seconds): offline assets must be extracted and the layout model loaded — this is normal
 - Works fully offline (except the translation service itself); the layout recognition model and font assets are bundled
 
+## Usage Tutorial
+
+> Commands below are written as `pdf2zh`. Portable-build users should substitute `build\pdf2zh.exe` (Windows) or `./build/pdf2zh` (Linux / macOS) — the arguments are identical. For source installation, see [Running from Source](#running-from-source).
+
+### Quick Start
+
+```bash
+# 1. GUI mode: open http://localhost:7860 in your browser after launch
+pdf2zh --interactive
+
+# 2. CLI mode: default Google translation, English → Chinese
+pdf2zh paper.pdf
+
+# 3. Ultrafast mode for text-only PDFs (no layout model, 16 threads by default)
+pdf2zh paper.pdf --ultrafast
+```
+
+When translation finishes, `Traned_single_paper.pdf` (translation only) and `Traned_double_paper.pdf` (side-by-side bilingual) appear next to the source file.
+
+### GUI Mode
+
+1. **Launch**: run `pdf2zh --interactive` (portable build: double-click `build\start.bat` or run the launcher). The first launch takes ~30 seconds to extract offline assets and load the layout model — this is normal.
+2. **Open the UI**: visit `http://localhost:7860` in your browser.
+3. **Choose input**: in the *File* section, pick *Local file* (`.pdf` / `.doc` / `.docx`; Word documents are converted to PDF automatically) or *Link* (a direct PDF download URL).
+4. **Choose a translation service**: select one from the dropdown. For LLM services, pick or type a model name (an online model-list fetch is provided) and fill in your API key and other credentials — they are saved persistently.
+5. **Choose languages**: set the source and target languages.
+6. **Set the page range**: all pages by default, or a custom range such as `1-5` or `1,3,5-8` (1-based).
+7. **Translate**: click the translate button and wait for completion.
+8. **Get results**: download `Traned_single_*.pdf` (translation only) and `Traned_double_*.pdf` (bilingual) from the output area.
+
+The *More experimental options* accordion lets you adjust: thread count, skip font subsetting, ignore cache (force retranslation), custom formula-font regex (vfont), custom prompt (LLM services), and translation mode (fast / precise).
+
+### CLI Mode
+
+Basic syntax: `pdf2zh <files...> [options]`
+
+Common options:
+
+| Option | Short | Default | Description |
+|---|---|---|---|
+| `--pages` | `-p` | all | Page range, e.g. `1-5`, `1,3,5-8` (1-based) |
+| `--lang-in` | `-li` | `en` | Source language code |
+| `--lang-out` | `-lo` | `zh` | Target language code |
+| `--service` | `-s` | `google` | Translation service; specify a model via `service:model`, e.g. `openai:gpt-4o-mini` |
+| `--output` | `-o` | source directory | Output directory |
+| `--thread` | `-t` | `4` (16 with `--ultrafast`) | Translation worker threads |
+| `--dir` | | | Recursively translate all PDF / Word files in a directory |
+| `--ultrafast` | | | Ultrafast mode: skips the layout model for text-only PDFs, much faster |
+| `--ignore-cache` | | | Ignore the translation cache and force retranslation |
+| `--compatible` | `-cp` | | Convert output to PDF/A for compatibility |
+| `--skip-subset-fonts` | | | Skip font subsetting (fixes garbled/missing glyphs in some readers; larger file) |
+| `--prompt` | | | Path to a custom prompt template file (LLM services) |
+| `--vfont` | `-f` | | Regex for formula font names |
+| `--vchar` | `-c` | | Regex for formula characters |
+| `--onnx` | | | Path to a custom DocLayout-YOLO ONNX model |
+| `--backend` | | `auto` | Layout-model inference backend: `auto` / `cpu` / `cuda` / `dml` |
+| `--conf` | | `0.25` | Layout detection confidence threshold |
+| `--reserved-classes` | | `abandon,figure,table,isolate_formula,formula_caption` | Layout classes protected from translation; remove entries to translate misdetected regions |
+| `--mode` | | `fast` | Translation mode: `fast` (v1) or `precise` (v2) |
+| `--babeldoc` | | | Use the experimental babeldoc backend |
+| `--interactive` | `-i` | | Launch the GUI |
+| `--serverport` | | | Custom WebUI port |
+| `--share` | | | Enable the Gradio public share link |
+| `--authorized` | | | GUI username and password |
+| `--config` | | | Path to a JSON config file |
+| `--mcp` / `--sse` | | | Launch the MCP server (STDIO / SSE mode) |
+| `--debug` | `-d` | | Debug logging |
+
+Common examples:
+
+```bash
+# Translate specific pages
+pdf2zh paper.pdf --pages 1-10
+pdf2zh paper.pdf -p 1,3,5-8
+
+# Specify languages and service
+pdf2zh paper.pdf --lang-in en --lang-out zh --service google
+
+# Use OpenAI with a specific model (requires OPENAI_API_KEY)
+pdf2zh paper.pdf -s openai:gpt-4o-mini
+
+# Batch-translate a whole directory (recursively finds PDF / Word files)
+pdf2zh papers/ --dir
+
+# Custom output directory
+pdf2zh paper.pdf -o output/
+
+# More worker threads
+pdf2zh paper.pdf -t 8
+
+# GPU-accelerated layout detection (NVIDIA / AMD)
+pdf2zh paper.pdf --backend cuda
+pdf2zh paper.pdf --backend dml
+
+# Force retranslation after changing the prompt / model
+pdf2zh paper.pdf --ignore-cache
+
+# Full help
+pdf2zh --help
+```
+
+### Translation Services & API Keys
+
+Major services and their credentials:
+
+| Service | `--service` value | Environment variables | Default model |
+|---|---|---|---|
+| Google (free, default) | `google` | none | — |
+| Bing | `bing` | none | — |
+| OpenAI | `openai` | `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, `OPENAI_MODEL`) | `gpt-4o-mini` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-1.5-flash` |
+| DeepL | `deepl` | `DEEPL_AUTH_KEY` | — |
+| DeepLX | `deeplx` | `DEEPLX_ENDPOINT`, `DEEPLX_ACCESS_TOKEN` | — |
+| Zhipu GLM | `zhipu` | `ZHIPU_API_KEY` | `glm-4-flash` |
+| LongCat | `longcat` | `LONGCAT_API_KEY` | `LongCat-Flash-Chat` |
+| SiliconFlow | `silicon` | `SILICON_API_KEY` | `Qwen/Qwen2.5-7B-Instruct` |
+| Grok | `grok` | `GROK_API_KEY` | `grok-2-1212` |
+| Groq | `groq` | `GROQ_API_KEY` | `llama-3-3-70b-versatile` |
+| MiniMax | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2.7` |
+| Azure OpenAI | `azure-openai` | `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_KEY`, etc. | `gpt-4o-mini` |
+| Ollama (local) | `ollama` | `OLLAMA_HOST`, `OLLAMA_MODEL` | `gemma2` |
+| OpenAI-compatible | `openailiked` | `OPENAILIKED_BASE_URL`, `OPENAILIKED_API_KEY`, `OPENAILIKED_MODEL` | — |
+| Tencent Cloud | `tencent` | `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` | — |
+| Azure Text Translation | `azure` | `AZURE_ENDPOINT`, `AZURE_API_KEY` | — |
+
+Additional services include `modelscope`, `xinference`, `dify`, `anythingllm`, `qwen-mt`, `302ai`, and `argos` (offline); see `pdf2zh/translator.py` for the full list.
+
+Three ways to configure an API key:
+
+1. **Environment variables (recommended for the CLI)**:
+
+   ```bash
+   # Linux / macOS
+   export OPENAI_API_KEY="sk-..."
+
+   # Windows (PowerShell)
+   $env:OPENAI_API_KEY = "sk-..."
+
+   # Windows (CMD)
+   set OPENAI_API_KEY=sk-...
+   ```
+
+2. **Via the GUI**: fill in the credential boxes after selecting a service; values are saved persistently.
+
+3. **Config file**: credentials are persisted in `~/.config/PDFMathTranslate/config.json` (`C:\Users\<user>\.config\PDFMathTranslate\config.json` on Windows); `--config` points to a custom config file.
+
+### Output Files
+
+- `Traned_single_<name>.pdf`: translation-only version
+- `Traned_double_<name>.pdf`: side-by-side bilingual version (original layout preserved)
+- Intermediate files go into a hidden `.staging/` subdirectory next to the source file and are cleaned up automatically after translation
+- Translations are cached locally: identical content with identical parameters hits the cache instantly; changing the prompt / model / language or passing `--ignore-cache` forces retranslation
+
+### FAQ
+
+<details>
+<summary>First launch is slow?</summary>
+
+The first launch extracts offline assets and loads the layout model (~30 seconds) — this is normal. Subsequent launches are much faster.
+</details>
+
+<details>
+<summary>"Proxy environment variables detected" warning?</summary>
+
+`HTTP_PROXY` / `HTTPS_PROXY` (or similar) variables are set in your environment. If your VPN/proxy is off, all requests (including domestic APIs) will fail. Clear those variables, or set `NO_PROXY` for your API domains.
+</details>
+
+<details>
+<summary>Formulas get translated / body text is skipped as formulas?</summary>
+
+- Formula-font misdetection: customize the formula font / character regexes with `--vfont` / `--vchar`;
+- Layout-region misdetection: adjust `--reserved-classes` (remove protected classes so misdetected regions get translated), or tune the confidence threshold with `--conf`;
+- If still unsatisfactory, swap in your own DocLayout-YOLO model with `--onnx`.
+</details>
+
+<details>
+<summary>API rate limits (429)?</summary>
+
+LLM services retry automatically with exponential backoff. If rate limiting persists, lower the concurrency with `--thread`.
+</details>
+
+<details>
+<summary>Output PDF shows garbled / missing glyphs in some readers?</summary>
+
+Add `--skip-subset-fonts` to skip font subsetting, or `--compatible` to convert to PDF/A; the trade-off is a larger file.
+</details>
+
+<details>
+<summary>Translation is too slow?</summary>
+
+- Add `--ultrafast` for text-only PDFs (few formulas/charts);
+- Add `--backend cuda` / `--backend dml` for NVIDIA / AMD GPUs to accelerate layout detection;
+- Raise `--thread` for LLM services.
+</details>
+
 ## Running from Source
 
 ```bash
