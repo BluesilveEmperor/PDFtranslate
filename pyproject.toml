@@ -55,6 +55,14 @@ argostranslate = [
 mcp = [
     "mcp>=1.6.0",
 ]
+toolbox = [
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "openpyxl>=3.1",
+    "Pillow>=10.0",
+    "cryptography>=42.0",
+    "xlrd>=2.0",
+]
 cuda = [
     "onnxruntime-gpu",
 ]
@@ -83,6 +91,7 @@ build-backend = "hatchling.build"
 [project.scripts]
 pdf2zh = "pdf2zh.pdf2zh:main"
 pdf2zh-setup-precise = "pdf2zh.kernel.precise:setup_precise_cli"
+pdf2zh-toolbox = "pdf2zh.toolbox.cli:main"
 
 [tool.flake8]
 ignore = ["E203", "E261", "E501", "W503", "E741"]

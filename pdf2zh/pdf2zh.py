@@ -50,7 +50,15 @@ def warn_proxy_env() -> None:
 
 
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, add_help=True)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        add_help=True,
+        epilog=(
+            "内置工具箱: 运行 'pdf2zh toolbox <命令> [参数...]' 可使用合并/拆分/"
+            "加密/格式转换等 PDF 工具（等价于 'pdf2zh --toolbox <命令> ...'）。"
+            "全部命令见 'python -m pdf2zh.toolbox --help'。"
+        ),
+    )
     parser.add_argument(
         "files",
         type=str,
@@ -323,7 +331,16 @@ def find_all_files_in_directory(directory_path):
 
 
 def main(args: Optional[List[str]] = None) -> int:
-    parsed_args = parse_args(args)
+    # 工具箱转发入口：`pdf2zh toolbox <命令> ...` 或 `pdf2zh --toolbox <命令> ...`。
+    # 在此前置拦截，避免工具箱参数（-o/-p 等）被主 CLI 的同名参数截获；
+    # 只要首参数不是 toolbox/--toolbox，原有主 CLI 行为完全不变。
+    raw_args = sys.argv[1:] if args is None else list(args)
+    if raw_args and raw_args[0] in ("toolbox", "--toolbox"):
+        from pdf2zh.toolbox.cli import main as toolbox_main
+
+        return toolbox_main(raw_args[1:])
+
+    parsed_args = parse_args(raw_args)
 
     from rich.logging import RichHandler
 

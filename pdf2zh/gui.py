@@ -26,6 +26,7 @@ from pdf2zh import __version__
 from pdf2zh.high_level import translate
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
+from pdf2zh.toolbox_gui import build_toolbox_tab
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     AzureOpenAITranslator,
@@ -922,329 +923,361 @@ with gr.Blocks(
         (_favicon_head() + demo_recaptcha) if flag_demo else _favicon_head()
     ),
 ) as demo:
-    gr.Markdown(
-        f"{load_icon('ic_public_translate_e2c')} "
-        "<span class='top-title'>[PDFMathTranslate](https://github.com/BluesilveEmperor/PDFtranslate)</span>"
-        " <span class='secondary-text'>— 保留公式与排版的 PDF 翻译</span>",
-        elem_classes=["icon-heading"],
-    )
-
-    with gr.Row():
-        with gr.Column(scale=1):
+    with gr.Tabs():
+        with gr.Tab("翻译"):
             gr.Markdown(
-                f"{load_icon('ic_public_file')} "
-                '<span class="section-label">文件</span>'
-                + (" | < 5 MB" if flag_demo else ""),
+                f"{load_icon('ic_public_translate_e2c')} "
+                "<span class='top-title'>[PDFMathTranslate](https://github.com/BluesilveEmperor/PDFtranslate)</span>"
+                " <span class='secondary-text'>— 保留公式与排版的 PDF 翻译</span>",
                 elem_classes=["icon-heading"],
             )
-            file_type = gr.Radio(
-                choices=["本地文件", "链接"],
-                label="输入方式",
-                value="本地文件",
-            )
-            file_input = gr.File(
-                label="文件",
-                file_count="single",
-                file_types=[".pdf", ".doc", ".docx"],
-                type="filepath",
-                elem_classes=["input-file"],
-            )
-            link_input = gr.Textbox(
-                label="链接",
-                visible=False,
-                interactive=True,
-            )
-            gr.Markdown(
-                f"{load_icon('ic_public_settings')} "
-                '<span class="section-label">选项</span>',
-                elem_classes=["icon-heading"],
-            )
-            service_label_md = gr.Markdown(
-                f"{service_icon_html(enabled_services[0])} "
-                '<span class="section-label">翻译服务</span>',
-                elem_classes=["icon-heading"],
-            )
-            service = gr.Dropdown(
-                choices=enabled_services,
-                value=enabled_services[0],
-                show_label=False,
-                interactive=True,
-            )
-            # 模型选择行：图标标签 + 可搜索下拉 + 在线获取按钮
-            model_label_md = gr.Markdown(
-                '<span class="section-label">模型</span>',
-                visible=False,
-                elem_classes=["icon-heading"],
-            )
-            with gr.Row() as model_row:
-                model_dd = gr.Dropdown(
-                    choices=[],
-                    value=None,
-                    allow_custom_value=True,
-                    scale=4,
-                    interactive=True,
-                    visible=False,
-                    filterable=True,
-                    show_label=False,
-                )
-                fetch_models_btn = gr.Button(
-                    "获取模型列表",
 
-                    scale=2,
-                    visible=False,
-                )
-            envs = []
-            for i in range(3):
-                envs.append(
-                    gr.Textbox(
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown(
+                        f"{load_icon('ic_public_file')} "
+                        '<span class="section-label">文件</span>'
+                        + (" | < 5 MB" if flag_demo else ""),
+                        elem_classes=["icon-heading"],
+                    )
+                    file_type = gr.Radio(
+                        choices=["本地文件", "链接"],
+                        label="输入方式",
+                        value="本地文件",
+                    )
+                    file_input = gr.File(
+                        label="文件",
+                        file_count="single",
+                        file_types=[".pdf", ".doc", ".docx"],
+                        type="filepath",
+                        elem_classes=["input-file"],
+                    )
+                    link_input = gr.Textbox(
+                        label="链接",
                         visible=False,
                         interactive=True,
                     )
-                )
-            # 记录当前服务的 env 槽位布局（MODEL/API_KEY/BASE_URL 各在第几槽）
-            env_layout = gr.State({"model_slot": -1, "base_slot": -1})
-            with gr.Row():
-                lang_from = gr.Dropdown(
-                    label="源语言",
-                    choices=lang_map.keys(),
-                    value=_norm_lang(
-                        ConfigManager.get("PDF2ZH_LANG_FROM", "英语")
-                    ),
-                )
-                lang_to = gr.Dropdown(
-                    label="目标语言",
-                    choices=lang_map.keys(),
-                    value=_norm_lang(
-                        ConfigManager.get("PDF2ZH_LANG_TO", "简体中文")
-                    ),
-                )
-            page_range = gr.Radio(
-                choices=page_map.keys(),
-                label="页面范围",
-                value=list(page_map.keys())[0],
-            )
-
-            page_input = gr.Textbox(
-                label="页码范围",
-                visible=False,
-                interactive=True,
-            )
-
-            with gr.Accordion("更多实验选项", open=False):
-                gr.Markdown("#### 实验性功能")
-                threads = gr.Textbox(
-                    label="线程数", interactive=True, value="4"
-                )
-                skip_subset_fonts = gr.Checkbox(
-                    label="跳过字体子集化", interactive=True, value=False
-                )
-                ignore_cache = gr.Checkbox(
-                    label="忽略缓存", interactive=True, value=False
-                )
-                vfont = gr.Textbox(
-                    label="自定义公式字体正则（vfont）",
-                    interactive=True,
-                    value=ConfigManager.get("PDF2ZH_VFONT", ""),
-                )
-                prompt = gr.Textbox(
-                    label="自定义 Prompt（LLM）", interactive=True, visible=False
-                )
-                mode_choice = gr.Dropdown(
-                    label="翻译模式",
-                    choices=["fast", "precise"],
-                    value="fast",
-                    interactive=True,
-                )
-                envs.append(prompt)
-
-            def on_select_service(service, evt: gr.EventData):
-                translator = service_map[service]
-                _envs = []
-                for i in range(4):
-                    _envs.append(gr.update(visible=False, value=""))
-                # 语义槽位：MODEL/BASE_URL 用独立行展示与交互
-                layout = {
-                    "model_slot": -1,
-                    "key_slot": -1,
-                    "base_slot": -1,
-                    "key_env": "",
-                    "base_env": "",
-                }
-                model_value = ""
-                for i, env in enumerate(translator.envs.items()):
-                    if i >= 3:  # 仅 3 个动态槽位，其余（stream 等）不展示
-                        break
-                    label = env[0]
-                    upper = str(label).upper()
-                    value = ConfigManager.get_env_by_translatername(
-                        translator, env[0], env[1]
+                    gr.Markdown(
+                        f"{load_icon('ic_public_settings')} "
+                        '<span class="section-label">选项</span>',
+                        elem_classes=["icon-heading"],
                     )
-                    is_model = "MODEL" in upper
-                    is_key = "API_KEY" in upper or "AUTH" in upper
-                    is_base = "BASE_URL" in upper or "HOST" in upper
-                    if is_model:
-                        layout["model_slot"] = i
-                        model_value = value
-                    if is_key:
-                        layout["key_slot"] = i
-                        layout["key_env"] = str(label)
-                    if is_base:
-                        layout["base_slot"] = i
-                        layout["base_env"] = str(label)
-                    visible = True
-                    if is_model:
-                        visible = False  # 由独立的模型下拉行替代
-                    elif hidden_gradio_details and value:
-                        visible = False
-                    if is_key and value:
-                        value = "***"  # 用 *** 代替真实密钥
-                    _envs[i] = gr.update(
-                        visible=visible,
-                        label=label,
-                        value=value,
+                    service_label_md = gr.Markdown(
+                        f"{service_icon_html(enabled_services[0])} "
+                        '<span class="section-label">翻译服务</span>',
+                        elem_classes=["icon-heading"],
                     )
-                _envs[-1] = gr.update(visible=translator.CustomPrompt)
-
-                has_model = layout["model_slot"] >= 0
-                can_fetch = service in OPENAI_COMPAT and has_model
-                _model_dd = gr.update(
-                    visible=has_model,
-                    value=model_value or None,
-                    choices=[],
-                )
-                _fetch_btn = gr.update(visible=can_fetch)
-                # 图标嵌入 Markdown 标签（与"文件/选项"标题同一渲染路径）
-                if has_model:
-                    _model_label_md = (
-                        f"{model_icon_html(model_value)} "
-                        '<span class="section-label">模型</span>'
+                    service = gr.Dropdown(
+                        choices=enabled_services,
+                        value=enabled_services[0],
+                        show_label=False,
+                        interactive=True,
                     )
-                else:
-                    _model_label_md = gr.update(visible=False)
-                _service_label_md = (
-                    f"{service_icon_html(service)} "
-                    '<span class="section-label">翻译服务</span>'
-                )
-                return (
-                    _envs[0],
-                    _envs[1],
-                    _envs[2],
-                    _envs[3],
-                    _model_dd,
-                    _fetch_btn,
-                    _model_label_md,
-                    _service_label_md,
-                    layout,
-                )
+                    # 模型选择行：图标标签 + 可搜索下拉 + 在线获取按钮
+                    model_label_md = gr.Markdown(
+                        '<span class="section-label">模型</span>',
+                        visible=False,
+                        elem_classes=["icon-heading"],
+                    )
+                    with gr.Row() as model_row:
+                        model_dd = gr.Dropdown(
+                            choices=[],
+                            value=None,
+                            allow_custom_value=True,
+                            scale=4,
+                            interactive=True,
+                            visible=False,
+                            filterable=True,
+                            show_label=False,
+                        )
+                        fetch_models_btn = gr.Button(
+                            "获取模型列表",
 
-            def on_model_dd_change(
-                value, e0, e1, e2, layout
-            ):
-                """把模型下拉的值同步回对应的 MODEL env 槽位，保持
-                translate_file 按 index 对齐的兼容性。"""
-                vals = [e0, e1, e2]
-                slot = layout.get("model_slot", -1)
-                if 0 <= slot <= 2:
-                    vals[slot] = value
-                return vals[0], vals[1], vals[2]
+                            scale=2,
+                            visible=False,
+                        )
+                    envs = []
+                    for i in range(3):
+                        envs.append(
+                            gr.Textbox(
+                                visible=False,
+                                interactive=True,
+                            )
+                        )
+                    # 记录当前服务的 env 槽位布局（MODEL/API_KEY/BASE_URL 各在第几槽）
+                    env_layout = gr.State({"model_slot": -1, "base_slot": -1})
+                    with gr.Row():
+                        lang_from = gr.Dropdown(
+                            label="源语言",
+                            choices=lang_map.keys(),
+                            value=_norm_lang(
+                                ConfigManager.get("PDF2ZH_LANG_FROM", "英语")
+                            ),
+                        )
+                        lang_to = gr.Dropdown(
+                            label="目标语言",
+                            choices=lang_map.keys(),
+                            value=_norm_lang(
+                                ConfigManager.get("PDF2ZH_LANG_TO", "简体中文")
+                            ),
+                        )
+                    page_range = gr.Radio(
+                        choices=page_map.keys(),
+                        label="页面范围",
+                        value=list(page_map.keys())[0],
+                    )
 
-            def on_fetch_models(service, e0, e1, e2, layout):
-                """从 OpenAI 兼容端点在线获取模型列表。"""
-                vals = [e0, e1, e2]
-                key = ""
-                if 0 <= layout.get("key_slot", -1) <= 2:
-                    key = str(vals[layout["key_slot"]] or "")
-                if key == "***" and layout.get("key_env"):
-                    # 界面密钥打码时回读本地配置的真实值
-                    key = ConfigManager.get_env_by_translatername(
-                        service_map[service], layout["key_env"], None
-                    ) or ""
-                base = ""
-                if 0 <= layout.get("base_slot", -1) <= 2:
-                    base = str(vals[layout["base_slot"]] or "")
-                    if base == "***":
+                    page_input = gr.Textbox(
+                        label="页码范围",
+                        visible=False,
+                        interactive=True,
+                    )
+
+                    with gr.Accordion("更多实验选项", open=False):
+                        gr.Markdown("#### 实验性功能")
+                        threads = gr.Textbox(
+                            label="线程数", interactive=True, value="4"
+                        )
+                        skip_subset_fonts = gr.Checkbox(
+                            label="跳过字体子集化", interactive=True, value=False
+                        )
+                        ignore_cache = gr.Checkbox(
+                            label="忽略缓存", interactive=True, value=False
+                        )
+                        vfont = gr.Textbox(
+                            label="自定义公式字体正则（vfont）",
+                            interactive=True,
+                            value=ConfigManager.get("PDF2ZH_VFONT", ""),
+                        )
+                        prompt = gr.Textbox(
+                            label="自定义 Prompt（LLM）", interactive=True, visible=False
+                        )
+                        mode_choice = gr.Dropdown(
+                            label="翻译模式",
+                            choices=["fast", "precise"],
+                            value="fast",
+                            interactive=True,
+                        )
+                        envs.append(prompt)
+
+                    def on_select_service(service, evt: gr.EventData):
+                        translator = service_map[service]
+                        _envs = []
+                        for i in range(4):
+                            _envs.append(gr.update(visible=False, value=""))
+                        # 语义槽位：MODEL/BASE_URL 用独立行展示与交互
+                        layout = {
+                            "model_slot": -1,
+                            "key_slot": -1,
+                            "base_slot": -1,
+                            "key_env": "",
+                            "base_env": "",
+                        }
+                        model_value = ""
+                        for i, env in enumerate(translator.envs.items()):
+                            if i >= 3:  # 仅 3 个动态槽位，其余（stream 等）不展示
+                                break
+                            label = env[0]
+                            upper = str(label).upper()
+                            value = ConfigManager.get_env_by_translatername(
+                                translator, env[0], env[1]
+                            )
+                            is_model = "MODEL" in upper
+                            is_key = "API_KEY" in upper or "AUTH" in upper
+                            is_base = "BASE_URL" in upper or "HOST" in upper
+                            if is_model:
+                                layout["model_slot"] = i
+                                model_value = value
+                            if is_key:
+                                layout["key_slot"] = i
+                                layout["key_env"] = str(label)
+                            if is_base:
+                                layout["base_slot"] = i
+                                layout["base_env"] = str(label)
+                            visible = True
+                            if is_model:
+                                visible = False  # 由独立的模型下拉行替代
+                            elif hidden_gradio_details and value:
+                                visible = False
+                            if is_key and value:
+                                value = "***"  # 用 *** 代替真实密钥
+                            _envs[i] = gr.update(
+                                visible=visible,
+                                label=label,
+                                value=value,
+                            )
+                        _envs[-1] = gr.update(visible=translator.CustomPrompt)
+
+                        has_model = layout["model_slot"] >= 0
+                        can_fetch = service in OPENAI_COMPAT and has_model
+                        _model_dd = gr.update(
+                            visible=has_model,
+                            value=model_value or None,
+                            choices=[],
+                        )
+                        _fetch_btn = gr.update(visible=can_fetch)
+                        # 图标嵌入 Markdown 标签（与"文件/选项"标题同一渲染路径）
+                        if has_model:
+                            _model_label_md = (
+                                f"{model_icon_html(model_value)} "
+                                '<span class="section-label">模型</span>'
+                            )
+                        else:
+                            _model_label_md = gr.update(visible=False)
+                        _service_label_md = (
+                            f"{service_icon_html(service)} "
+                            '<span class="section-label">翻译服务</span>'
+                        )
+                        return (
+                            _envs[0],
+                            _envs[1],
+                            _envs[2],
+                            _envs[3],
+                            _model_dd,
+                            _fetch_btn,
+                            _model_label_md,
+                            _service_label_md,
+                            layout,
+                        )
+
+                    def on_model_dd_change(
+                        value, e0, e1, e2, layout
+                    ):
+                        """把模型下拉的值同步回对应的 MODEL env 槽位，保持
+                        translate_file 按 index 对齐的兼容性。"""
+                        vals = [e0, e1, e2]
+                        slot = layout.get("model_slot", -1)
+                        if 0 <= slot <= 2:
+                            vals[slot] = value
+                        return vals[0], vals[1], vals[2]
+
+                    def on_fetch_models(service, e0, e1, e2, layout):
+                        """从 OpenAI 兼容端点在线获取模型列表。"""
+                        vals = [e0, e1, e2]
+                        key = ""
+                        if 0 <= layout.get("key_slot", -1) <= 2:
+                            key = str(vals[layout["key_slot"]] or "")
+                        if key == "***" and layout.get("key_env"):
+                            # 界面密钥打码时回读本地配置的真实值
+                            key = ConfigManager.get_env_by_translatername(
+                                service_map[service], layout["key_env"], None
+                            ) or ""
                         base = ""
-                ids = fetch_model_list(service, key, base)
-                return gr.update(choices=ids)
+                        if 0 <= layout.get("base_slot", -1) <= 2:
+                            base = str(vals[layout["base_slot"]] or "")
+                            if base == "***":
+                                base = ""
+                        ids = fetch_model_list(service, key, base)
+                        return gr.update(choices=ids)
 
-            def on_select_filetype(file_type):
-                return (
-                    gr.update(visible=file_type == "本地文件"),
-                    gr.update(visible=file_type == "链接"),
-                )
+                    def on_select_filetype(file_type):
+                        return (
+                            gr.update(visible=file_type == "本地文件"),
+                            gr.update(visible=file_type == "链接"),
+                        )
 
-            def on_select_page(choice):
-                if choice == "指定页":
-                    return gr.update(visible=True)
-                else:
-                    return gr.update(visible=False)
+                    def on_select_page(choice):
+                        if choice == "指定页":
+                            return gr.update(visible=True)
+                        else:
+                            return gr.update(visible=False)
 
-            def on_vfont_change(value):
-                ConfigManager.set("PDF2ZH_VFONT", value)
-                return value
+                    def on_vfont_change(value):
+                        ConfigManager.set("PDF2ZH_VFONT", value)
+                        return value
 
-            output_title = gr.Markdown(
-                f"{load_icon('ic_public_download')} "
-                '<span class="section-label">翻译结果</span>',
-                visible=False,
-                elem_classes=["icon-heading"],
-            )
-            output_file_mono = gr.File(
-                label="下载译文（单语）", visible=False
-            )
-            output_file_dual = gr.File(
-                label="下载译文（双语对照）", visible=False
-            )
-            recaptcha_response = gr.Textbox(
-                label="reCAPTCHA Response", elem_id="verify", visible=False
-            )
-            recaptcha_box = gr.HTML('<div id="recaptcha-box"></div>')
-            with gr.Row():
-                translate_btn = gr.Button(
-                    "开始翻译", variant="primary", scale=4
-                )
-                cancellation_btn = gr.Button(
-                    "取消", variant="secondary", scale=1
-                )
-            page_range.select(on_select_page, page_range, page_input)
-            service.select(
-                on_select_service,
-                [service],
-                [
-                    envs[0],
-                    envs[1],
-                    envs[2],
-                    envs[3],
-                    model_dd,
-                    fetch_models_btn,
-                    model_label_md,
-                    service_label_md,
-                    env_layout,
-                ],
-            )
-            model_dd.change(
-                on_model_dd_change,
-                inputs=[model_dd, envs[0], envs[1], envs[2], env_layout],
-                outputs=[envs[0], envs[1], envs[2]],
-            )
-            model_dd.change(
-                lambda v: (
-                    f"{model_icon_html(v)} "
-                    '<span class="section-label">模型</span>'
-                ),
-                inputs=model_dd,
-                outputs=model_label_md,
-            )
-            fetch_models_btn.click(
-                on_fetch_models,
-                inputs=[service, envs[0], envs[1], envs[2], env_layout],
-                outputs=model_dd,
-            )
-            vfont.change(on_vfont_change, inputs=vfont, outputs=None)
-            file_type.select(
-                on_select_filetype,
-                file_type,
-                [file_input, link_input],
+                    output_title = gr.Markdown(
+                        f"{load_icon('ic_public_download')} "
+                        '<span class="section-label">翻译结果</span>',
+                        visible=False,
+                        elem_classes=["icon-heading"],
+                    )
+                    output_file_mono = gr.File(
+                        label="下载译文（单语）", visible=False
+                    )
+                    output_file_dual = gr.File(
+                        label="下载译文（双语对照）", visible=False
+                    )
+                    recaptcha_response = gr.Textbox(
+                        label="reCAPTCHA Response", elem_id="verify", visible=False
+                    )
+                    recaptcha_box = gr.HTML('<div id="recaptcha-box"></div>')
+                    with gr.Row():
+                        translate_btn = gr.Button(
+                            "开始翻译", variant="primary", scale=4
+                        )
+                        cancellation_btn = gr.Button(
+                            "取消", variant="secondary", scale=1
+                        )
+                    page_range.select(on_select_page, page_range, page_input)
+                    service.select(
+                        on_select_service,
+                        [service],
+                        [
+                            envs[0],
+                            envs[1],
+                            envs[2],
+                            envs[3],
+                            model_dd,
+                            fetch_models_btn,
+                            model_label_md,
+                            service_label_md,
+                            env_layout,
+                        ],
+                    )
+                    model_dd.change(
+                        on_model_dd_change,
+                        inputs=[model_dd, envs[0], envs[1], envs[2], env_layout],
+                        outputs=[envs[0], envs[1], envs[2]],
+                    )
+                    model_dd.change(
+                        lambda v: (
+                            f"{model_icon_html(v)} "
+                            '<span class="section-label">模型</span>'
+                        ),
+                        inputs=model_dd,
+                        outputs=model_label_md,
+                    )
+                    fetch_models_btn.click(
+                        on_fetch_models,
+                        inputs=[service, envs[0], envs[1], envs[2], env_layout],
+                        outputs=model_dd,
+                    )
+                    vfont.change(on_vfont_change, inputs=vfont, outputs=None)
+                    file_type.select(
+                        on_select_filetype,
+                        file_type,
+                        [file_input, link_input],
+                        js=(
+                            f"""
+                            (a,b)=>{{
+                                try{{
+                                    grecaptcha.render('recaptcha-box',{{
+                                        'sitekey':'{client_key}',
+                                        'callback':'onVerify'
+                                    }});
+                                }}catch(error){{}}
+                                return [a];
+                            }}
+                            """
+                            if flag_demo
+                            else ""
+                        ),
+                    )
+
+                with gr.Column(scale=2):
+                    gr.Markdown(
+                        f"{load_icon('ic_public_detail')} "
+                        '<span class="section-label">预览</span>',
+                        elem_classes=["icon-heading"],
+                    )
+                    preview = PDF(label="文档预览", visible=True, height=760)
+
+            # Event handlers
+            file_input.upload(
+                lambda x: x,
+                inputs=file_input,
+                outputs=preview,
                 js=(
                     f"""
                     (a,b)=>{{
@@ -1262,73 +1295,46 @@ with gr.Blocks(
                 ),
             )
 
-        with gr.Column(scale=2):
-            gr.Markdown(
-                f"{load_icon('ic_public_detail')} "
-                '<span class="section-label">预览</span>',
-                elem_classes=["icon-heading"],
+            state = gr.State({"session_id": None})
+
+            translate_btn.click(
+                translate_file,
+                inputs=[
+                    file_type,
+                    file_input,
+                    link_input,
+                    service,
+                    lang_from,
+                    lang_to,
+                    page_range,
+                    page_input,
+                    prompt,
+                    threads,
+                    skip_subset_fonts,
+                    ignore_cache,
+                    vfont,
+                    mode_choice,
+                    recaptcha_response,
+                    state,
+                    *envs,
+                ],
+                outputs=[
+                    output_file_mono,
+                    preview,
+                    output_file_dual,
+                    output_file_mono,
+                    output_file_dual,
+                    output_title,
+                ],
+            ).then(lambda: None, js="()=>{grecaptcha.reset()}" if flag_demo else "")
+
+            cancellation_btn.click(
+                stop_translate_file,
+                inputs=[state],
             )
-            preview = PDF(label="文档预览", visible=True, height=760)
 
-    # Event handlers
-    file_input.upload(
-        lambda x: x,
-        inputs=file_input,
-        outputs=preview,
-        js=(
-            f"""
-            (a,b)=>{{
-                try{{
-                    grecaptcha.render('recaptcha-box',{{
-                        'sitekey':'{client_key}',
-                        'callback':'onVerify'
-                    }});
-                }}catch(error){{}}
-                return [a];
-            }}
-            """
-            if flag_demo
-            else ""
-        ),
-    )
-
-    state = gr.State({"session_id": None})
-
-    translate_btn.click(
-        translate_file,
-        inputs=[
-            file_type,
-            file_input,
-            link_input,
-            service,
-            lang_from,
-            lang_to,
-            page_range,
-            page_input,
-            prompt,
-            threads,
-            skip_subset_fonts,
-            ignore_cache,
-            vfont,
-            mode_choice,
-            recaptcha_response,
-            state,
-            *envs,
-        ],
-        outputs=[
-            output_file_mono,
-            preview,
-            output_file_dual,
-            output_file_mono,
-            output_file_dual,
-            output_title,
-        ],
-    ).then(lambda: None, js="()=>{grecaptcha.reset()}" if flag_demo else "")
-
-    cancellation_btn.click(
-        stop_translate_file,
-        inputs=[state],
-    )
+        with gr.Tab("工具箱"):
+            build_toolbox_tab(load_icon)
 
 
 def parse_user_passwd(file_path: str) -> tuple:
