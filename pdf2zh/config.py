@@ -1,8 +1,14 @@
 import json
+import logging
 from pathlib import Path
 from threading import RLock  # 改成 RLock
 import os
 import copy
+import shutil
+
+from pdf2zh.app_paths import cache_dir
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -25,11 +31,40 @@ class ConfigManager:
             return
         self._initialized = True
 
-        self._config_path = Path.home() / ".config" / "PDFMathTranslate" / "config.json"
+        # 配置落到程序根目录下的 config/pdf-cache（隐藏），不再写入用户主目录。
+        self._config_path = cache_dir() / "config.json"
         self._config_data = {}
+
+        # 从旧位置迁移已有配置，避免用户已配置的翻译服务 / 密钥丢失。
+        self._migrate_legacy_config()
 
         # 这里不要再加锁，因为外层可能已经加了锁 (get_instance), RLock也无妨
         self._ensure_config_exists()
+
+    def _migrate_legacy_config(self):
+        """把旧版 ``~/.config/PDFMathTranslate/config.json`` 迁移到新位置。
+
+        仅当新路径尚不存在、且旧路径存在时，把旧文件复制（而非移动）过来，
+        以免影响用户仍可能运行旧版本时的体验。迁移失败不中断启动。
+        """
+        if self._config_path.exists():
+            return
+
+        # 避免在 import / 类定义阶段求值 Path.home()，便于测试 monkeypatch。
+        legacy_path = Path.home() / ".config" / "PDFMathTranslate" / "config.json"
+        if not legacy_path.exists() or legacy_path == self._config_path:
+            return
+
+        try:
+            self._config_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_path, self._config_path)
+            logger.info("Migrated legacy config %s -> %s", legacy_path, self._config_path)
+        except OSError:
+            logger.warning(
+                "Failed to migrate legacy config from %s; a fresh config will be created",
+                legacy_path,
+                exc_info=True,
+            )
 
     def _ensure_config_exists(self, isInit=True):
         """确保配置文件存在，如果不存在则创建默认配置"""

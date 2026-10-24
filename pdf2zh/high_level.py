@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 from pdf2zh.pdfinterp import PDFPageInterpreterEx
 
 from pdf2zh.config import ConfigManager
+from pdf2zh.app_paths import cache_dir
 
 NOTO_NAME = "noto"
 
@@ -306,7 +307,8 @@ def _ocr_tessdata(language):
         raise ValueError("Invalid OCR language; use Tesseract codes such as eng+deu")
     if tessdata := os.environ.get("TESSDATA_PREFIX"):
         return tessdata
-    cache = Path.home() / ".cache/pdf2zh/tessdata/4.1.0"
+    # OCR tessdata 缓存落到程序根目录下的 config/pdf-cache（隐藏），不再写入 ~/.cache/pdf2zh
+    cache = cache_dir() / "tessdata" / "4.1.0"
     for code in dict.fromkeys(language.split("+")):
         filename = f"{code}.traineddata"
         target = cache / filename

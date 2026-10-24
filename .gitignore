@@ -184,3 +184,5 @@ uv.lock
 .gradio/
 *.zip
 dep_build/
+# 运行时配置与缓存（程序根目录下的隐藏目录，不入库）
+config/pdf-cache/

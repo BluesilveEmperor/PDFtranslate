@@ -182,12 +182,16 @@ class TestOCRPages(unittest.TestCase):
                 os.environ,
                 {"TESSDATA_PREFIX": "", "PDF2ZH_TESSDATA_MIRRORS": ""},
             ):
-                with patch.object(high_level.Path, "home", return_value=Path(home)):
+                with patch.object(
+                    high_level,
+                    "cache_dir",
+                    return_value=Path(home) / "config" / "pdf-cache",
+                ):
                     with patch.object(high_level.requests, "get", side_effect=get):
                         cache = high_level._ocr_tessdata("eng+deu")
                         self.assertEqual(
                             cache,
-                            str(Path(home) / ".cache/pdf2zh/tessdata/4.1.0"),
+                            str(Path(home) / "config/pdf-cache/tessdata/4.1.0"),
                         )
                         # Cached now, no further downloads
                         self.assertEqual(cache, high_level._ocr_tessdata("eng+deu"))
@@ -201,7 +205,7 @@ class TestOCRPages(unittest.TestCase):
             )
             self.assertEqual(downloads[0][1]["timeout"], (5, 60))
             self.assertTrue(
-                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+                (Path(home) / "config/pdf-cache/tessdata/4.1.0/eng.traineddata").exists()
             )
 
     def test_tessdata_falls_back_to_next_mirror(self):
@@ -222,20 +226,24 @@ class TestOCRPages(unittest.TestCase):
                 os.environ,
                 {"TESSDATA_PREFIX": "", "PDF2ZH_TESSDATA_MIRRORS": ""},
             ):
-                with patch.object(high_level.Path, "home", return_value=Path(home)):
+                with patch.object(
+                    high_level,
+                    "cache_dir",
+                    return_value=Path(home) / "config" / "pdf-cache",
+                ):
                     with patch.object(
                         high_level.requests, "get", side_effect=get
                     ) as mock_get:
                         cache = high_level._ocr_tessdata("eng")
                         self.assertEqual(
                             cache,
-                            str(Path(home) / ".cache/pdf2zh/tessdata/4.1.0"),
+                            str(Path(home) / "config/pdf-cache/tessdata/4.1.0"),
                         )
 
             self.assertEqual(mock_get.call_count, 2)
             self.assertIn("cdn.jsdelivr.net", mock_get.call_args_list[1][0][0])
             self.assertTrue(
-                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+                (Path(home) / "config/pdf-cache/tessdata/4.1.0/eng.traineddata").exists()
             )
 
     def test_tessdata_custom_mirror_env(self):
@@ -256,7 +264,11 @@ class TestOCRPages(unittest.TestCase):
                     "PDF2ZH_TESSDATA_MIRRORS": "https://mirror.example.com/tess/{filename}",
                 },
             ):
-                with patch.object(high_level.Path, "home", return_value=Path(home)):
+                with patch.object(
+                    high_level,
+                    "cache_dir",
+                    return_value=Path(home) / "config" / "pdf-cache",
+                ):
                     with patch.object(high_level.requests, "get", side_effect=get):
                         high_level._ocr_tessdata("eng")
 
@@ -264,7 +276,7 @@ class TestOCRPages(unittest.TestCase):
                 urls[0], "https://mirror.example.com/tess/eng.traineddata"
             )
             self.assertTrue(
-                (Path(home) / ".cache/pdf2zh/tessdata/4.1.0/eng.traineddata").exists()
+                (Path(home) / "config/pdf-cache/tessdata/4.1.0/eng.traineddata").exists()
             )
 
     def test_translate_stream_ocr_masks_body_and_preserves_source(self):
