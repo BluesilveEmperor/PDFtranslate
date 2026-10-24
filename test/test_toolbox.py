@@ -1216,3 +1216,19 @@ def test_make_component_reads_bool_default_and_numeric_bounds():
         )
         assert jobs.minimum == 1
         assert jobs.maximum == (os.cpu_count() or 4)
+
+def test_validate_enforces_numeric_bounds():
+    """validate 对危险数值参数做上/下限校验（与 pwcrack.MAX_BRUTE_LEN 及 CPU 核数同源）。"""
+    cpu = os.cpu_count() or 4
+
+    assert any("上限" in e for e in validate("decrypt", {"input": "x", "--max-len": "9"}))
+    assert any("下限" in e for e in validate("decrypt", {"input": "x", "--max-len": "0"}))
+    assert any(
+        "上限" in e
+        for e in validate("decrypt", {"input": "x", "--jobs": str(cpu + 999)})
+    )
+    assert any(
+        "须为整数" in e for e in validate("decrypt", {"input": "x", "--max-len": "abc"})
+    )
+    # 合法范围内不报错
+    assert validate("decrypt", {"input": "x", "--max-len": "4", "--jobs": "1"}) == []

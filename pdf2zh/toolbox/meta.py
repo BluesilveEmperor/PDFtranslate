@@ -16,6 +16,10 @@
         可选参数用 CLI flag（如 "-o", "--dpi"）。
 """
 
+import os
+
+from pdf2zh.toolbox.pwcrack import MAX_BRUTE_LEN
+
 CATEGORIES = [
     ("页面操作", "cat_pages"),
     ("内容编辑", "cat_edit"),
@@ -349,6 +353,20 @@ def build_argv(cmd, values):
     return [cmd] + positional + optional
 
 
+def _int_bounds(key):
+    """返回危险数值参数的 (最小值, 最大值)；None 表示该字段不设边界。
+
+    与 :data:`pdf2zh.toolbox.pwcrack.MAX_BRUTE_LEN` 及 CPU 核数保持一致，
+    使 CLI/API 在 ``validate`` 阶段即给出清晰错误，而不是等到暴力枚举运行时
+    才被硬上限拒绝；也让 GUI 的 ``_numeric_bounds`` 有同一套边界语义。
+    """
+    if key in ("--min-len", "--max-len"):
+        return 1, MAX_BRUTE_LEN
+    if key == "--jobs":
+        return 1, os.cpu_count() or 4
+    return None
+
+
 def validate(cmd, values):
     """返回错误信息列表,空列表 = 通过。"""
     errors = []
@@ -359,9 +377,17 @@ def validate(cmd, values):
             errors.append(f"缺少必填项: {f['label']}")
         if not empty and f["type"] == "int":
             try:
-                int(str(v))
+                iv = int(str(v))
             except ValueError:
                 errors.append(f"{f['label']} 须为整数")
+            else:
+                bounds = _int_bounds(f["key"])
+                if bounds is not None:
+                    lo, hi = bounds
+                    if lo is not None and iv < lo:
+                        errors.append(f"{f['label']} 不能小于下限 {lo}")
+                    if hi is not None and iv > hi:
+                        errors.append(f"{f['label']} 不能超过上限 {hi}")
         if not empty and f["type"] == "float":
             try:
                 float(str(v))
