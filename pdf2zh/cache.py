@@ -4,6 +4,8 @@ import json
 from peewee import Model, SqliteDatabase, AutoField, CharField, TextField, SQL
 from typing import Optional
 
+from pdf2zh.app_paths import cache_dir
+
 # we don't init the database here
 db = SqliteDatabase(None)
 logger = logging.getLogger(__name__)
@@ -91,7 +93,8 @@ class TranslationCache:
 
 
 def init_db(remove_exists=False):
-    cache_folder = os.path.join(os.path.expanduser("~"), ".cache", "pdf2zh")
+    # 翻译缓存落到程序根目录下的 config/pdf-cache（隐藏），不再写入 ~/.cache/pdf2zh
+    cache_folder = str(cache_dir())
     os.makedirs(cache_folder, exist_ok=True)
     # The current version does not support database migration, so add the version number to the file name.
     cache_db_path = os.path.join(cache_folder, "cache.v1.db")
