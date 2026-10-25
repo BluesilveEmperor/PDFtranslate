@@ -4,7 +4,7 @@
 
 A scientific PDF document translator that preserves the original layout, formulas, charts, and annotations.
 
-This is a personally maintained fork with the following enhancements: cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, and GUI polish.
+This is a personally maintained fork with the following enhancements: a built-in **PDF toolbox (24 PDF-processing commands)**, cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, GUI polish, and config/cache that live alongside the program.
 
 ## Features
 
@@ -13,6 +13,8 @@ This is a personally maintained fork with the following enhancements: cross-plat
 - 🤖 Both a CLI tool and a Gradio web interface
 - ⚡ `--ultrafast` mode for accelerating text-only PDF translation
 - 📦 Portable builds for three platforms: extract and run — bundled Python runtime, all dependencies, and offline assets; nothing to install
+- 🧰 Built-in PDF toolbox: 24 commands (merge / split / extract / insert / rotate / cut, page numbers / watermarks / text replace / remove links, encrypt / decrypt, PDF ↔ Word/PPT/Excel/image conversion), available from both the Web UI's Toolbox tab and the CLI
+- 🗂️ Portable config & cache: the config file, translation cache, and OCR cache all live under `<program root>/config/pdf-cache/` (hidden), leaving nothing behind in the user home
 
 ## Portable Builds (Recommended, No Installation)
 
@@ -200,7 +202,7 @@ Three ways to configure an API key:
 
 2. **Via the GUI**: fill in the credential boxes after selecting a service; values are saved persistently.
 
-3. **Config file**: credentials are persisted in `~/.config/PDFMathTranslate/config.json` (`C:\Users\<user>\.config\PDFMathTranslate\config.json` on Windows); `--config` points to a custom config file.
+3. **Config file**: credentials are persisted under the program root at `config/pdf-cache/config.json` (portable build: `build/config/pdf-cache/config.json`; source run: `<repo>/config/pdf-cache/config.json`, hidden on Windows). A legacy `~/.config/PDFMathTranslate/config.json` is migrated automatically if present. `--config` points to a custom config file.
 
 ### Output Files
 
@@ -250,6 +252,47 @@ Add `--skip-subset-fonts` to skip font subsetting, or `--compatible` to convert 
 - Add `--backend cuda` / `--backend dml` for NVIDIA / AMD GPUs to accelerate layout detection;
 - Raise `--thread` for LLM services.
 </details>
+
+## PDF Toolbox
+
+Besides translation, this project bundles a PDF toolbox (fused from a portable PDF-tool project) with **24 commands** covering page operations, content editing, encryption, and format conversion.
+
+### Commands
+
+| Category | Commands |
+|---|---|
+| Page operations | `merge`, `split`, `extract`, `insert`, `delete`, `rotate`, `cut`, `pages-merger` |
+| Content editing | `page-number`, `watermark-text`, `watermark-image`, `text-replace`, `text-delete`, `remove-links` |
+| Security | `encrypt`, `decrypt` (with password recovery) |
+| PDF conversion | `pdf-to-image`, `image-to-pdf`, `pdf-to-word`, `pdf-to-ppt`, `pdf-to-excel` |
+| Office conversion | `word-to-pdf`, `excel-to-pdf`, `ppt-to-pdf` |
+
+### In the Web UI
+
+After launching the GUI, switch to the "Toolbox" tab: pick a category, then a command — the form is generated automatically from the command's parameters. Fill in inputs/outputs and click run; results are downloadable below (multiple files or a directory are zipped automatically).
+
+### On the CLI
+
+```bash
+# Via the main CLI
+pdf2zh toolbox merge a.pdf b.pdf -o merged.pdf
+pdf2zh toolbox rotate a.pdf --angle 90
+pdf2zh toolbox decrypt locked.pdf            # defaults to Removed_locked.pdf when -o is omitted
+
+# Or call the toolbox CLI directly
+python -m pdf2zh.toolbox extract a.pdf -p 1-3 -o out.pdf
+python -m pdf2zh.toolbox --help              # list all commands and categories
+```
+
+### Optional dependencies
+
+The toolbox's Office / image / encryption features rely on optional libraries. For source runs:
+
+```bash
+pip install -e ".[toolbox]"
+```
+
+Portable builds already bundle all toolbox dependencies.
 
 ## Running from Source
 

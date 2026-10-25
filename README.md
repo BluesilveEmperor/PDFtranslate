@@ -4,7 +4,7 @@
 
 科学 PDF 文档翻译工具，保留原始排版、公式、图表和注释。
 
-本仓库为个人维护的 fork，主要增强：跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化。
+本仓库为个人维护的 fork，主要增强：**内置 PDF 工具箱（24 个 PDF 处理命令）**、跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化、配置与缓存跟随程序目录。
 
 ## 功能特性
 
@@ -13,6 +13,8 @@
 - 🤖 提供命令行工具和 Gradio Web 界面
 - ⚡ 支持 `--ultrafast` 模式加速纯文本 PDF 翻译
 - 📦 三平台便携版：解压即用，自带 Python 运行时、全部依赖与离线资产，无需安装任何环境
+- 🧰 内置 PDF 工具箱：24 个命令（合并 / 拆分 / 提取 / 插入 / 旋转 / 裁剪、页码 / 水印 / 文字替换 / 去链接、加解密、PDF ↔ Word/PPT/Excel/图片 互转），在 Web 界面「工具箱」标签页与命令行中均可使用
+- 🗂️ 配置与缓存跟随程序：配置文件、翻译缓存、OCR 缓存统一存放于程序根目录 `config/pdf-cache/`（隐藏），不在用户主目录残留
 
 ## 便携版（推荐，免安装）
 
@@ -200,7 +202,7 @@ pdf2zh --help
 
 2. **GUI 填写**：在界面选择服务后于凭据输入框中填写，保存后持久生效。
 
-3. **配置文件**：凭据持久保存在 `~/.config/PDFMathTranslate/config.json`（Windows 为 `C:\Users\<用户名>\.config\PDFMathTranslate\config.json`），也可用 `--config` 指定自定义配置。
+3. **配置文件**：凭据持久保存在程序根目录下的 `config/pdf-cache/config.json`（便携版为 `build/config/pdf-cache/config.json`，源码运行为仓库根 `config/pdf-cache/config.json`，Windows 上该目录带隐藏属性）；旧版 `~/.config/PDFMathTranslate/config.json` 若存在会自动迁移。也可用 `--config` 指定自定义配置。
 
 ### 输出文件说明
 
@@ -250,6 +252,47 @@ LLM 类服务内置指数退避自动重试；仍频繁限流时用 `--thread` �
 - 有 NVIDIA / AMD 显卡时加 `--backend cuda` / `--backend dml` 加速布局识别；
 - LLM 服务可适当调高 `--thread`。
 </details>
+
+## PDF 工具箱
+
+除翻译外，本项目内置一套 PDF 工具箱（能力融合自便携式 PDF 工具项目），共 **24 个命令**，覆盖页面操作、内容编辑、加解密与格式转换。
+
+### 命令一览
+
+| 分类 | 命令 |
+|---|---|
+| 页面操作 | `merge` 合并、`split` 拆分、`extract` 提取、`insert` 插入、`delete` 删除、`rotate` 旋转、`cut` 裁剪、`pages-merger` 交错合并 |
+| 内容编辑 | `page-number` 页码、`watermark-text` 文字水印、`watermark-image` 图片水印、`text-replace` 文字替换、`text-delete` 文字删除、`remove-links` 去除链接 |
+| 安全 | `encrypt` 加密、`decrypt` 解密（含无密码恢复） |
+| PDF 转换 | `pdf-to-image`、`image-to-pdf`、`pdf-to-word`、`pdf-to-ppt`、`pdf-to-excel` |
+| Office 转换 | `word-to-pdf`、`excel-to-pdf`、`ppt-to-pdf` |
+
+### 在 Web 界面中使用
+
+启动 GUI 后切换到「工具箱」标签页：先选分类、再选命令，表单会按命令参数自动生成；填写输入与输出后点击执行，结果在下方下载（多文件或目录自动打包为 zip）。
+
+### 在命令行中使用
+
+```bash
+# 经主 CLI 转发
+pdf2zh toolbox merge a.pdf b.pdf -o merged.pdf
+pdf2zh toolbox rotate a.pdf --angle 90
+pdf2zh toolbox decrypt locked.pdf            # 未指定输出时默认写到 Removed_locked.pdf
+
+# 或直接调用工具箱 CLI
+python -m pdf2zh.toolbox extract a.pdf -p 1-3 -o out.pdf
+python -m pdf2zh.toolbox --help              # 查看全部命令与分类
+```
+
+### 安装可选依赖
+
+工具箱的 Office / 图片 / 加密相关能力依赖若干可选库，源码运行时安装：
+
+```bash
+pip install -e ".[toolbox]"
+```
+
+便携版已内置全部工具箱依赖，无需额外安装。
 
 ## 从源码运行
 
