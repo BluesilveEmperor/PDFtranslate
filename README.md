@@ -255,21 +255,78 @@ LLM 类服务内置指数退避自动重试；仍频繁限流时用 `--thread` �
 
 ## PDF 工具箱
 
-除翻译外，本项目内置一套 PDF 工具箱（能力融合自便携式 PDF 工具项目），共 **24 个命令**，覆盖页面操作、内容编辑、加解密与格式转换。
+除翻译外，本项目内置一套 PDF 工具箱（能力融合自便携式 PDF 工具项目），共 **24 个命令**，覆盖页面操作、内容编辑、加解密与格式转换，全程离线可用。既可在 Web 界面以表单操作，也可在命令行批量处理；与翻译搭配，可覆盖「翻译前处理 → 翻译 → 翻译后加工」的完整链路。
 
-### 命令一览
+### 页面操作
 
-| 分类 | 命令 |
+| 命令 | 说明 | 主要参数 |
+|---|---|---|
+| `merge` | 将多个 PDF 按顺序合并为一个 | 多个输入 PDF + `-o` |
+| `split` | 按页数或范围拆成多份 | `--every N`（每 N 页一份）或 `--ranges 1-3,4-9`（每段一份）；`-o` 输出目录 |
+| `extract` | 提取指定页面生成新 PDF | `-p` 页码范围，如 `1-3,5,7-9` |
+| `delete` | 删除指定页面 | `-p` 页码范围 |
+| `insert` | 将另一个 PDF 的全部页面插入指定位置 | `--file` 待插入 PDF、`--pos` 插入位置（0 起，-1 为末尾） |
+| `rotate` | 旋转指定页面 | `--angle 90/180/270`、`-p`（空=全部） |
+| `cut` | 裁剪每页边距（单位 pt，1pt = 1/72 英寸） | `--left/--right/--top/--bottom` |
+| `pages-merger` | 两份 PDF 交错或追加合并 | `--mode interleave`（A1B1A2B2…）或 `append` |
+
+### 内容编辑
+
+| 命令 | 说明 | 主要参数 |
+|---|---|---|
+| `page-number` | 为每页添加页码 | `--pos`（上/下 × 左/中/右 6 个位置）、`--start`、`--format`（`{n}` 为页码占位，如 `第 {n} 页`）、`--size` |
+| `watermark-text` | 添加文字水印（默认平铺） | `--text`、`--angle`、`--opacity`（0-1）、`--size`、`--center`（居中单个） |
+| `watermark-image` | 添加图片水印（PNG 带 alpha 最佳） | `--image`、`--opacity`、`--scale`（相对页宽）、`--center` |
+| `text-replace` | 全文检索并替换文本（红注遮盖 + 叠印新文本） | `--old`、`--new`、`-p` |
+| `text-delete` | 删除指定文本（红注遮盖） | `--text`、`-p` |
+| `remove-links` | 删除 PDF 中全部链接 | — |
+
+### 安全
+
+| 命令 | 说明 | 主要参数 |
+|---|---|---|
+| `encrypt` | AES-256 加密，可禁止打印 / 复制 | `--user-pw`（打开密码）、`--owner-pw`（权限密码，空=同打开密码）、`--no-print`、`--no-copy` |
+| `decrypt` | **免密码解密**：权限密码瞬时解除；未知打开密码自动多阶段恢复（内置常用密码字典 + 可选自定义字典 + 受限暴力枚举） | `--wordlist` 字典文件、`--charset` 字符集、`--min-len`/`--max-len`（≤8）、`--jobs` 并行进程；`-o` 缺省为源目录 `Removed_<名>.pdf` |
+
+### PDF 转换
+
+| 命令 | 说明 | 主要参数 |
+|---|---|---|
+| `pdf-to-image` | 每页渲染为图片 | `--fmt png/jpg/jpeg/bmp/tiff`、`--dpi`、`--quality`、`-p` |
+| `image-to-pdf` | 多张图片合成 PDF | `--page-size auto/a4/a3/letter`、`--margin` |
+| `pdf-to-word` | 文本级重建为 `.docx`（保留字号 / 粗体 / 斜体） | `-p` |
+| `pdf-to-ppt` | 转为 `.pptx` | `--mode image`（整页图片保真）或 `text`（每页可编辑文本框）、`--dpi` |
+| `pdf-to-excel` | 每页一个工作表，优先表格识别 | `-p` |
+
+### Office 转换（纯 Python 渲染，无需安装 Office / LibreOffice）
+
+| 命令 | 说明 |
 |---|---|
-| 页面操作 | `merge` 合并、`split` 拆分、`extract` 提取、`insert` 插入、`delete` 删除、`rotate` 旋转、`cut` 裁剪、`pages-merger` 交错合并 |
-| 内容编辑 | `page-number` 页码、`watermark-text` 文字水印、`watermark-image` 图片水印、`text-replace` 文字替换、`text-delete` 文字删除、`remove-links` 去除链接 |
-| 安全 | `encrypt` 加密、`decrypt` 解密（含无密码恢复） |
-| PDF 转换 | `pdf-to-image`、`image-to-pdf`、`pdf-to-word`、`pdf-to-ppt`、`pdf-to-excel` |
-| Office 转换 | `word-to-pdf`、`excel-to-pdf`、`ppt-to-pdf` |
+| `word-to-pdf` | `.docx` → PDF |
+| `excel-to-pdf` | `.xlsx` / `.xls` → PDF（多 sheet，自适应列宽） |
+| `ppt-to-pdf` | `.pptx` → PDF（还原幻灯片尺寸与布局） |
+
+### 典型用法
+
+与翻译组合的完整工作流：
+
+```bash
+# 翻译前：加密 PDF 先解密（缺省输出 Removed_<名>.pdf），再翻译
+pdf2zh toolbox decrypt locked.pdf
+pdf2zh Removed_locked.pdf
+
+# 只翻译某几页：先提取再翻译
+pdf2zh toolbox extract paper.pdf -p 1-10 -o intro.pdf
+pdf2zh intro.pdf
+
+# 翻译后：转成可编辑 Word，或加页码 / 水印
+pdf2zh toolbox pdf-to-word Traned_double_paper.pdf -o paper_edit.docx
+pdf2zh toolbox page-number Traned_single_paper.pdf --pos bottom-center -o paper_final.pdf
+```
 
 ### 在 Web 界面中使用
 
-启动 GUI 后切换到「工具箱」标签页：先选分类、再选命令，表单会按命令参数自动生成；填写输入与输出后点击执行，结果在下方下载（多文件或目录自动打包为 zip）。
+启动 GUI 后切换到「工具箱」标签页：先选分类、再选命令，表单会按该命令的参数自动生成；填写输入与输出后点击执行，结果在下方下载（多文件或目录自动打包为 zip）。
 
 ### 在命令行中使用
 
