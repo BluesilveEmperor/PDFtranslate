@@ -6,6 +6,8 @@ A scientific PDF document translator that preserves the original layout, formula
 
 This is a personally maintained fork with the following enhancements: a built-in **PDF toolbox (24 PDF-processing commands)**, cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, GUI polish, and config/cache that live alongside the program.
 
+🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
+
 ## Features
 
 - 📊 Preserves formulas, charts, tables of contents, and annotations

@@ -6,6 +6,8 @@
 
 本仓库为个人维护的 fork，主要增强：**内置 PDF 工具箱（24 个 PDF 处理命令）**、跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化、配置与缓存跟随程序目录。
 
+🧩 **配套 Zotero 插件**：[PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) —— 在 Zotero 内直接调用本项目翻译 PDF，支持双语对照、裁剪阅读与批量翻译。
+
 ## 功能特性
 
 - 📊 保留公式、图表、目录和批注
