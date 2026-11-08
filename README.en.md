@@ -4,7 +4,7 @@
 
 A scientific PDF document translator that preserves the original layout, formulas, charts, and annotations.
 
-This is a personally maintained fork with the following enhancements: a built-in **PDF toolbox (24 PDF-processing commands)**, cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, GUI polish, and config/cache that live alongside the program.
+This is a personally maintained fork with the following enhancements: cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, GUI polish, and config/cache that live alongside the program.
 
 🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
 
@@ -15,7 +15,6 @@ This is a personally maintained fork with the following enhancements: a built-in
 - 🤖 Both a CLI tool and a Gradio web interface
 - ⚡ `--ultrafast` mode for accelerating text-only PDF translation
 - 📦 Portable builds for three platforms: extract and run — bundled Python runtime, all dependencies, and offline assets; nothing to install
-- 🧰 Built-in PDF toolbox: 24 commands (merge / split / extract / insert / rotate / cut, page numbers / watermarks / text replace / remove links, encrypt / decrypt, PDF ↔ Word/PPT/Excel/image conversion), available from both the Web UI's Toolbox tab and the CLI
 - 🗂️ Portable config & cache: the config file, translation cache, and OCR cache all live under `<program root>/config/pdf-cache/` (hidden), leaving nothing behind in the user home
 
 ## Portable Builds (Recommended, No Installation)
@@ -256,104 +255,6 @@ Add `--skip-subset-fonts` to skip font subsetting, or `--compatible` to convert 
 - Add `--backend cuda` / `--backend dml` for NVIDIA / AMD GPUs to accelerate layout detection;
 - Raise `--thread` for LLM services.
 </details>
-
-## PDF Toolbox
-
-Besides translation, this project bundles a PDF toolbox (fused from a portable PDF-tool project) with **24 commands** covering page operations, content editing, encryption, and format conversion — fully offline. Use it as forms in the Web UI or as a batch CLI; together with translation it covers the whole `pre-process → translate → post-process` pipeline.
-
-### Page operations
-
-| Command | Description | Key options |
-|---|---|---|
-| `merge` | Merge multiple PDFs into one, in order | multiple input PDFs + `-o` |
-| `split` | Split into parts by page count or ranges | `--every N` (one file per N pages) or `--ranges 1-3,4-9`; `-o` output directory |
-| `extract` | Extract selected pages into a new PDF | `-p` page range, e.g. `1-3,5,7-9` |
-| `delete` | Delete selected pages | `-p` page range |
-| `insert` | Insert all pages of another PDF at a position | `--file` source PDF, `--pos` (0-based; -1 = end) |
-| `rotate` | Rotate selected pages | `--angle 90/180/270`, `-p` (empty = all) |
-| `cut` | Crop page margins (pt, 1pt = 1/72 in) | `--left/--right/--top/--bottom` |
-| `pages-merger` | Interleave or append two PDFs | `--mode interleave` (A1B1A2B2…) or `append` |
-
-### Content editing
-
-| Command | Description | Key options |
-|---|---|---|
-| `page-number` | Add page numbers | `--pos` (6 positions), `--start`, `--format` (`{n}` placeholder, e.g. `Page {n}`), `--size` |
-| `watermark-text` | Add a text watermark (tiled by default) | `--text`, `--angle`, `--opacity` (0-1), `--size`, `--center` |
-| `watermark-image` | Add an image watermark (PNG with alpha is best) | `--image`, `--opacity`, `--scale` (relative to page width), `--center` |
-| `text-replace` | Search & replace text (redact + overlay new text) | `--old`, `--new`, `-p` |
-| `text-delete` | Delete specific text (redaction) | `--text`, `-p` |
-| `remove-links` | Remove all links in the PDF | — |
-
-### Security
-
-| Command | Description | Key options |
-|---|---|---|
-| `encrypt` | AES-256 encryption, optional no-print / no-copy | `--user-pw` (open password), `--owner-pw` (empty = same), `--no-print`, `--no-copy` |
-| `decrypt` | **Password-free decryption**: permission passwords are removed instantly; unknown open passwords are recovered in multiple stages (built-in common-password dictionary + optional custom dictionary + bounded brute force) | `--wordlist` file, `--charset`, `--min-len`/`--max-len` (≤8), `--jobs`; `-o` defaults to `<source dir>/Removed_<name>.pdf` |
-
-### PDF conversion
-
-| Command | Description | Key options |
-|---|---|---|
-| `pdf-to-image` | Render each page to an image | `--fmt png/jpg/jpeg/bmp/tiff`, `--dpi`, `--quality`, `-p` |
-| `image-to-pdf` | Combine images into a PDF | `--page-size auto/a4/a3/letter`, `--margin` |
-| `pdf-to-word` | Rebuild text-level `.docx` (keeps size/bold/italic) | `-p` |
-| `pdf-to-ppt` | Convert to `.pptx` | `--mode image` (faithful) or `text` (editable text boxes), `--dpi` |
-| `pdf-to-excel` | One sheet per page, table-aware | `-p` |
-
-### Office conversion (pure-Python rendering; no Office / LibreOffice needed)
-
-| Command | Description |
-|---|---|
-| `word-to-pdf` | `.docx` → PDF |
-| `excel-to-pdf` | `.xlsx` / `.xls` → PDF (multi-sheet, auto column widths) |
-| `ppt-to-pdf` | `.pptx` → PDF (preserves slide size and layout) |
-
-### Typical workflows
-
-Combined with translation:
-
-```bash
-# Before translating: decrypt an encrypted PDF first (defaults to Removed_<name>.pdf), then translate
-pdf2zh toolbox decrypt locked.pdf
-pdf2zh Removed_locked.pdf
-
-# Translate only some pages: extract first, then translate
-pdf2zh toolbox extract paper.pdf -p 1-10 -o intro.pdf
-pdf2zh intro.pdf
-
-# After translating: convert to editable Word, or add page numbers / watermark
-pdf2zh toolbox pdf-to-word Traned_double_paper.pdf -o paper_edit.docx
-pdf2zh toolbox page-number Traned_single_paper.pdf --pos bottom-center -o paper_final.pdf
-```
-
-### In the Web UI
-
-After launching the GUI, switch to the "Toolbox" tab: pick a category, then a command — the form is generated automatically from that command's parameters. Fill in inputs/outputs and click run; results are downloadable below (multiple files or a directory are zipped automatically).
-
-### On the CLI
-
-```bash
-# Via the main CLI
-pdf2zh toolbox merge a.pdf b.pdf -o merged.pdf
-pdf2zh toolbox rotate a.pdf --angle 90
-pdf2zh toolbox decrypt locked.pdf            # defaults to Removed_locked.pdf when -o is omitted
-
-# Or call the toolbox CLI directly
-python -m pdf2zh.toolbox extract a.pdf -p 1-3 -o out.pdf
-python -m pdf2zh.toolbox --help              # list all commands and categories
-```
-
-### Optional dependencies
-
-The toolbox's Office / image / encryption features rely on optional libraries. For source runs:
-
-```bash
-pip install -e ".[toolbox]"
-```
-
-Portable builds already bundle all toolbox dependencies.
 
 ## Running from Source
 

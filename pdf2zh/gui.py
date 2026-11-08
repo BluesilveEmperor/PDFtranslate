@@ -30,7 +30,6 @@ from pdf2zh.progress import (
     get_progress_style,
     progress_info_from_event,
 )
-from pdf2zh.toolbox_gui import build_toolbox_tab
 from pdf2zh.translator import (
     AnythingLLMTranslator,
     AzureOpenAITranslator,
@@ -1338,9 +1337,6 @@ with gr.Blocks(
                 stop_translate_file,
                 inputs=[state],
             )
-
-        with gr.Tab("工具箱"):
-            build_toolbox_tab(load_icon)
 
 
 def parse_user_passwd(file_path: str) -> tuple:
