@@ -165,3 +165,13 @@ README.en.md                            # 英文文档：同步更新
   - `opencv-python-headless<=4.11.0.86; ...`（原 `<5` 收紧）—— 防止 CI 真实 x86_64 解释器（macOS 15 Rosetta）在 `--python-platform` 标签语义不确定时解析到 4.14.0.94（`macosx_14_0` x86_64 wheel，在 `<5` 约束内），将产物地板抬升至 macOS 14；4.11.0.86 为 `macosx_10_15` x86_64 wheel。
 - **验证**：五平台干跑 A/B（新旧 pyproject 各 `uv pip compile --no-build`）依赖行零差异（126/126/121/120/120 包逐行一致）；darwin-x64 锁定 cryptography==48.0.1、opencv-python-headless==4.11.0.86、onnxruntime==1.19.2。
 - **经验记录**：`--no-build` 干跑不能完全替代 CI 真机安装验证——回溯语义掩盖了"最新版无 wheel 会走源码构建"的失败路径；PyPI wheel 标签核实（pypi.org/pypi/<pkg>/json）是确定 pin 边界的权威手段。
+
+### 2026-11: 二次运行失败（pikepdf）→ 全量差异审计补齐 pikepdf / opencv-python pin
+
+- **现象**：macos-build run 42456615866 中 x86_64 leg 失败点从 cryptography 移至 pikepdf==10.18.0（scikit-build-core 源码构建缺 `qpdf/Constants.h`）。
+- **根因与修复**：cryptography pin 生效后暴露下一个"最新版无 x86_64 macOS wheel"的包。为终结逐个暴露的"打地鼠"模式，做全量差异审计——`uv pip compile`（允许 sdist，等价 install 解析行为）vs `uv pip compile --no-build`（仅 wheel 回溯）在 darwin-x64 上逐包对比，全部差异包即全部会触发源码构建/地板抬升的包：
+  - `pikepdf`：latest 10.18.0 无 x86_64 macOS wheel（arm64-only）→ pin `<=9.11.0`（`cp312-macosx_13_0_x86_64`）；
+  - `opencv-python`（rapidocr-onnxruntime 传递依赖，独立于 opencv-python-headless，首次审计遗漏）：latest 5.0.0.93 仅 `abi3-macosx_14_0_x86_64` → pin `<=4.11.0.86`（`abi3-macosx_13_0_x86_64`）。
+  - 其余全部包（含 numpy 2.5.4、pymupdf 1.25.2、scikit-image、orjson、pydantic-core、tiktoken 等）两种解析结果一致 → 最新版均有 macOS 13 兼容 x86_64 wheel，无需 pin。
+- **地板修正**：pikepdf 9.11.0 与 opencv-python 4.11.0.86 的 x86_64 wheel 均为 `macosx_13_0`，为 x64 产物约束地板 → README / README.en 的 x64 行由 "macOS 11+" 修正为 "macOS 13+"（arm64 行不变）。
+- **审计方法论沉淀**：`compile --no-build`（回溯）与 `compile`（含 sdist）的差异包集合 = 需要平台 pin 的完整集合；此法可复用于未来依赖升级后的 Intel macOS 回归检查。

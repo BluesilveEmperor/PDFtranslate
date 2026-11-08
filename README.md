@@ -27,7 +27,7 @@
 | `pdf2zh-win64.zip` | Windows 10/11 | x64 |
 | `pdf2zh-linux-x64.tar.gz` | Linux (glibc) | x64 |
 | `pdf2zh-macos-arm64.tar.gz` | macOS 11+ | Apple Silicon (M1-M4) |
-| `pdf2zh-macos-x64.tar.gz` | macOS 11+ | Intel (x86_64) |
+| `pdf2zh-macos-x64.tar.gz` | macOS 13+ | Intel (x86_64) |
 
 > Intel 芯片 Mac 请下载 x64 版本。已知限制：`precise` 模式（`--mode precise`）在 Intel macOS 上暂不保证可用，请使用默认 `fast` 模式。
 

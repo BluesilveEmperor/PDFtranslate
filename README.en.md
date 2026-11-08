@@ -27,7 +27,7 @@ Download the artifact for your platform from [Releases](https://github.com/Blues
 | `pdf2zh-win64.zip` | Windows 10/11 | x64 |
 | `pdf2zh-linux-x64.tar.gz` | Linux (glibc) | x64 |
 | `pdf2zh-macos-arm64.tar.gz` | macOS 11+ | Apple Silicon (M1–M4) |
-| `pdf2zh-macos-x64.tar.gz` | macOS 11+ | Intel (x86_64) |
+| `pdf2zh-macos-x64.tar.gz` | macOS 13+ | Intel (x86_64) |
 
 > Intel-based Macs should download the x64 build. Known limitation: `precise` mode (`--mode precise`) is not guaranteed to work on Intel macOS — use the default `fast` mode.
 

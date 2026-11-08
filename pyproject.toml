@@ -41,6 +41,14 @@ dependencies = [
     # 4.14+ ships macosx_14_0 x86_64 tags that would raise the artifact floor to
     # macOS 14 (5.x requires macOS 14+ entirely).
     "opencv-python-headless<=4.11.0.86; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # pikepdf 10.x ships no x86_64 macOS wheel (arm64-only) and would fail the
+    # scikit-build-core source build (missing qpdf headers); 9.11.0 ships
+    # cp312-macosx_13_0_x86_64 wheels.
+    "pikepdf<=9.11.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # opencv-python (rapidocr-onnxruntime dep, distinct from -headless):
+    # 5.0.0.93 ships abi3-macosx_14_0_x86_64 only; 4.11.0.86 ships
+    # abi3-macosx_13_0_x86_64, keeping the artifact floor at macOS 13.
+    "opencv-python<=4.11.0.86; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "tencentcloud-sdk-python-tmt==3.1.70",  # newer releases remove TextTranslate
     "pdfminer-six==20250416",
     "gradio_pdf>=0.0.21",
