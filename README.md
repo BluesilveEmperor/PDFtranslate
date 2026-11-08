@@ -4,7 +4,9 @@
 
 科学 PDF 文档翻译工具，保留原始排版、公式、图表和注释。
 
-本仓库为个人维护的 fork，主要增强：跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化。
+本仓库为个人维护的 fork，主要增强：跨平台便携版构建（Windows / Linux / macOS）、离线资产打包、翻译缺陷修复、GUI 优化、配置与缓存跟随程序目录。
+
+🧩 **配套 Zotero 插件**：[PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) —— 在 Zotero 内直接调用本项目翻译 PDF，支持双语对照、裁剪阅读与批量翻译。
 
 🧩 **配套 Zotero 插件**：[PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) —— 在 Zotero 内直接调用本项目翻译 PDF，支持双语对照、裁剪阅读与批量翻译。
 
@@ -15,6 +17,7 @@
 - 🤖 提供命令行工具和 Gradio Web 界面
 - ⚡ 支持 `--ultrafast` 模式加速纯文本 PDF 翻译
 - 📦 三平台便携版：解压即用，自带 Python 运行时、全部依赖与离线资产，无需安装任何环境
+- 🗂️ 配置与缓存跟随程序：配置文件、翻译缓存、OCR 缓存统一存放于程序根目录 `config/pdf-cache/`（隐藏），不在用户主目录残留
 
 ## 便携版（推荐，免安装）
 
@@ -25,8 +28,9 @@
 | `pdf2zh-win64.zip` | Windows 10/11 | x64 |
 | `pdf2zh-linux-x64.tar.gz` | Linux (glibc) | x64 |
 | `pdf2zh-macos-arm64.tar.gz` | macOS 11+ | Apple Silicon (M1-M4) |
+| `pdf2zh-macos-x64.tar.gz` | macOS 13+ | Intel (x86_64) |
 
-> macOS 仅提供 Apple Silicon 版；Intel 芯片 Mac 暂不支持便携版。
+> Intel 芯片 Mac 请下载 x64 版本。已知限制：`precise` 模式（`--mode precise`）在 Intel macOS 上暂不保证可用，请使用默认 `fast` 模式。
 
 ### Windows
 
@@ -116,6 +120,7 @@ pdf2zh paper.pdf --ultrafast
 | `--conf` | | `0.25` | 布局检测置信度阈值 |
 | `--reserved-classes` | | `abandon,figure,table,isolate_formula,formula_caption` | 受保护不翻译的布局类别，可删减条目 |
 | `--mode` | | `fast` | 翻译模式：`fast`（v1）或 `precise`（v2） |
+| `--progress-style` | | `rich` | 终端进度条样式：`rich`（pip 风格彩色，默认）或 `plain`（纯色 tqdm）；也可用环境变量 `PDF2ZH_PROGRESS` 设置 |
 | `--babeldoc` | | | 使用 babeldoc 实验后端 |
 | `--interactive` | `-i` | | 启动 GUI |
 | `--serverport` | | | 自定义 WebUI 端口 |
@@ -202,7 +207,7 @@ pdf2zh --help
 
 2. **GUI 填写**：在界面选择服务后于凭据输入框中填写，保存后持久生效。
 
-3. **配置文件**：凭据持久保存在 `~/.config/PDFMathTranslate/config.json`（Windows 为 `C:\Users\<用户名>\.config\PDFMathTranslate\config.json`），也可用 `--config` 指定自定义配置。
+3. **配置文件**：凭据持久保存在程序根目录下的 `config/pdf-cache/config.json`（便携版为 `build/config/pdf-cache/config.json`，源码运行为仓库根 `config/pdf-cache/config.json`，Windows 上该目录带隐藏属性）；旧版 `~/.config/PDFMathTranslate/config.json` 若存在会自动迁移。也可用 `--config` 指定自定义配置。
 
 ### 输出文件说明
 
@@ -297,7 +302,7 @@ ASSETS_ALLOW_DOWNLOAD=1 bash build.sh
 
 ## CI / CD
 
-三个手动触发的 GitHub Actions workflow 分别构建三平台产物（`exe-build.yml` / `linux-build.yml` / `macos-build.yml`），构建后自动做 GUI 冒烟测试（启动服务 + 轮询 7860 端口 + 验证离线资产恢复）；`release-assets.yml` 将三个构建 run 的产物汇总上传到 Release。
+三个手动触发的 GitHub Actions workflow 分别构建各平台产物（`exe-build.yml` / `linux-build.yml` / `macos-build.yml`，其中 macOS 为 arm64 + x64 双架构矩阵，x86_64 版由 Apple Silicon runner 交叉构建并在 Rosetta 2 下冒烟测试），构建后自动做 GUI 冒烟测试（启动服务 + 轮询 7860 端口 + 验证离线资产恢复）；`release-assets.yml` 将三个构建 run 的产物汇总上传到 Release。
 
 ## 已知问题与修复记录
 

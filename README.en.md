@@ -4,7 +4,9 @@
 
 A scientific PDF document translator that preserves the original layout, formulas, charts, and annotations.
 
-This is a personally maintained fork with the following enhancements: cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, and GUI polish.
+This is a personally maintained fork with the following enhancements: cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, GUI polish, and config/cache that live alongside the program.
+
+🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
 
 🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
 
@@ -15,6 +17,7 @@ This is a personally maintained fork with the following enhancements: cross-plat
 - 🤖 Both a CLI tool and a Gradio web interface
 - ⚡ `--ultrafast` mode for accelerating text-only PDF translation
 - 📦 Portable builds for three platforms: extract and run — bundled Python runtime, all dependencies, and offline assets; nothing to install
+- 🗂️ Portable config & cache: the config file, translation cache, and OCR cache all live under `<program root>/config/pdf-cache/` (hidden), leaving nothing behind in the user home
 
 ## Portable Builds (Recommended, No Installation)
 
@@ -25,8 +28,9 @@ Download the artifact for your platform from [Releases](https://github.com/Blues
 | `pdf2zh-win64.zip` | Windows 10/11 | x64 |
 | `pdf2zh-linux-x64.tar.gz` | Linux (glibc) | x64 |
 | `pdf2zh-macos-arm64.tar.gz` | macOS 11+ | Apple Silicon (M1–M4) |
+| `pdf2zh-macos-x64.tar.gz` | macOS 13+ | Intel (x86_64) |
 
-> macOS is Apple Silicon only; Intel-based Macs are not supported by the portable build for now.
+> Intel-based Macs should download the x64 build. Known limitation: `precise` mode (`--mode precise`) is not guaranteed to work on Intel macOS — use the default `fast` mode.
 
 ### Windows
 
@@ -116,6 +120,7 @@ Common options:
 | `--conf` | | `0.25` | Layout detection confidence threshold |
 | `--reserved-classes` | | `abandon,figure,table,isolate_formula,formula_caption` | Layout classes protected from translation; remove entries to translate misdetected regions |
 | `--mode` | | `fast` | Translation mode: `fast` (v1) or `precise` (v2) |
+| `--progress-style` | | `rich` | Terminal progress bar style: `rich` (pip-style colored, default) or `plain` (plain tqdm); can also be set via the `PDF2ZH_PROGRESS` environment variable |
 | `--babeldoc` | | | Use the experimental babeldoc backend |
 | `--interactive` | `-i` | | Launch the GUI |
 | `--serverport` | | | Custom WebUI port |
@@ -202,7 +207,7 @@ Three ways to configure an API key:
 
 2. **Via the GUI**: fill in the credential boxes after selecting a service; values are saved persistently.
 
-3. **Config file**: credentials are persisted in `~/.config/PDFMathTranslate/config.json` (`C:\Users\<user>\.config\PDFMathTranslate\config.json` on Windows); `--config` points to a custom config file.
+3. **Config file**: credentials are persisted under the program root at `config/pdf-cache/config.json` (portable build: `build/config/pdf-cache/config.json`; source run: `<repo>/config/pdf-cache/config.json`, hidden on Windows). A legacy `~/.config/PDFMathTranslate/config.json` is migrated automatically if present. `--config` points to a custom config file.
 
 ### Output Files
 
@@ -297,7 +302,7 @@ ASSETS_ALLOW_DOWNLOAD=1 bash build.sh
 
 ## CI / CD
 
-Three manually triggered GitHub Actions workflows build the platform artifacts (`exe-build.yml` / `linux-build.yml` / `macos-build.yml`), each followed by an automated GUI smoke test (launch the service + poll port 7860 + verify offline asset restoration); `release-assets.yml` collects the artifacts from the three build runs and uploads them to the Release.
+Three manually triggered GitHub Actions workflows build the platform artifacts (`exe-build.yml` / `linux-build.yml` / `macos-build.yml`; the macOS workflow runs an arm64 + x64 dual-architecture matrix — the x86_64 build is cross-compiled on an Apple Silicon runner and smoke-tested under Rosetta 2), each followed by an automated GUI smoke test (launch the service + poll port 7860 + verify offline asset restoration); `release-assets.yml` collects the artifacts from the three build runs and uploads them to the Release.
 
 ## Known Issues & Fix Log
 
