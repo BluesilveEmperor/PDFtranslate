@@ -151,5 +151,17 @@ README.en.md                            # 英文文档：同步更新
 
 ### C3: 依赖声明契约（pyproject.toml）
 
-- Intel macOS（`sys_platform == 'darwin' and platform_machine == 'x86_64'`）解析结果：`onnxruntime==1.19.2`、`opencv-python-headless<5`（+ R8 审计产生的其余 pin）。
+- Intel macOS（`sys_platform == 'darwin' and platform_machine == 'x86_64'`）解析结果：`onnxruntime==1.19.2`、`cryptography<49`（解析到 48.0.1）、`opencv-python-headless<=4.11.0.86`（R8 审计 + CI 实测修复产生的完整 pin 集，见 Changelog）。
 - 其他所有平台的解析结果与变更前**逐字节一致**（现有行不修改，仅追加带 marker 的行）。
+
+## Changelog（CI 实测后修订）
+
+### 2026-11: macos-build x86_64 leg 首次真实运行失败 → 追加 cryptography pin 并收紧 opencv 边界
+
+- **现象**：macos-build run 42455171072 中 `build-macos-exe (x86_64, x64)` 失败（作业 128652518227）。`uv pip install` 阶段对 cryptography 50.0.2（pdfminer-six 传递依赖的最新版）触发 maturin/cargo 源码交叉编译，ARM runner 缺 x86_64 OpenSSL 开发库而失败（`OPENSSL_DIR` 未设置）。
+- **根因**：cryptography 49.0.0 起不再发布任何 x86_64/universal2 macOS wheel（仅 arm64）。本机干跑审计（`uv pip compile --no-build`）与 CI 实际安装（`uv pip install` 允许源码构建）语义不同：前者遇无 wheel 候选会**回溯**到 48.0.1（`cp39-abi3-macosx_10_9_universal2`，地板 macOS 10.9），后者直接取最新版源码构建。arm64 leg 与 win/linux leg 均不受影响。
+- **修复**（与 R2 同机制，两处 marker pin）：
+  - `cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'` —— 同时修复便携版（uv pip install）与 Intel macOS 源码安装（pip install .）两条路径；与 toolbox extra 的 `cryptography>=42.0` 交集兼容（48.0.1 满足）。
+  - `opencv-python-headless<=4.11.0.86; ...`（原 `<5` 收紧）—— 防止 CI 真实 x86_64 解释器（macOS 15 Rosetta）在 `--python-platform` 标签语义不确定时解析到 4.14.0.94（`macosx_14_0` x86_64 wheel，在 `<5` 约束内），将产物地板抬升至 macOS 14；4.11.0.86 为 `macosx_10_15` x86_64 wheel。
+- **验证**：五平台干跑 A/B（新旧 pyproject 各 `uv pip compile --no-build`）依赖行零差异（126/126/121/120/120 包逐行一致）；darwin-x64 锁定 cryptography==48.0.1、opencv-python-headless==4.11.0.86、onnxruntime==1.19.2。
+- **经验记录**：`--no-build` 干跑不能完全替代 CI 真机安装验证——回溯语义掩盖了"最新版无 wheel 会走源码构建"的失败路径；PyPI wheel 标签核实（pypi.org/pypi/<pkg>/json）是确定 pin 边界的权威手段。

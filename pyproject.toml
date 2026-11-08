@@ -33,7 +33,14 @@ dependencies = [
     # macOS 11-compatible universal2 wheel; opencv 5.x x86_64 wheels require
     # macOS 14+. See spec/macos-intel-adapt/plan.md (R1/R3).
     "onnxruntime==1.19.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "opencv-python-headless<5; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # cryptography 49+ ships no x86_64/universal2 macOS wheel (arm64-only), which
+    # would force a source build in portable installs; 48.0.1 ships
+    # cp39-abi3 macosx_10_9_universal2 (macOS 10.9+).
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # opencv-python-headless<=4.11.0.86 pins the macosx_10_15 x86_64 wheel floor;
+    # 4.14+ ships macosx_14_0 x86_64 tags that would raise the artifact floor to
+    # macOS 14 (5.x requires macOS 14+ entirely).
+    "opencv-python-headless<=4.11.0.86; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "tencentcloud-sdk-python-tmt==3.1.70",  # newer releases remove TextTranslate
     "pdfminer-six==20250416",
     "gradio_pdf>=0.0.21",
