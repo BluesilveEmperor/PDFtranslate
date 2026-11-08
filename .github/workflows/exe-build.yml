@@ -56,17 +56,51 @@ jobs:
           Write-Host "==== 复制代码到 dep_build ===="
           Get-ChildItem -Path "./" -Exclude "dep_build", "build" | Copy-Item -Destination "./dep_build" -Recurse -Force
 
+          function Invoke-DownloadWithRetry {
+              param([string]$Url, [string]$OutFile, [hashtable]$Headers = $null, [int]$MaxAttempts = 5)
+              for ($i = 1; $i -le $MaxAttempts; $i++) {
+                  try {
+                      $params = @{ Uri = $Url; OutFile = $OutFile; TimeoutSec = 300; ErrorAction = "Stop" }
+                      if ($Headers) { $params.Headers = $Headers }
+                      Invoke-WebRequest @params
+                      if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 0)) {
+                          Write-Host "下载成功(第 $i 次): $Url"
+                          return
+                      }
+                      throw "下载文件为空"
+                  } catch {
+                      Write-Host "下载失败(第 $i/$MaxAttempts 次): $($_.Exception.Message)"
+                      if ($i -lt $MaxAttempts) { Start-Sleep -Seconds (15 * $i) }
+                  }
+              }
+              throw "重试 $MaxAttempts 次后仍失败: $Url"
+          }
+
           Write-Host "==== 下载并解压 Python ${{ env.WIN_EXE_PYTHON_VERSION }} ===="
           Write-Host "pythonUrl: https://www.python.org/ftp/python/${{ env.WIN_EXE_PYTHON_VERSION }}/python-${{ env.WIN_EXE_PYTHON_VERSION }}-embed-amd64.zip"
           $pythonUrl = "https://www.python.org/ftp/python/${{ env.WIN_EXE_PYTHON_VERSION }}/python-${{ env.WIN_EXE_PYTHON_VERSION }}-embed-amd64.zip"
           $pythonZip = "./dep_build/python.zip"
-          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonZip
+          Invoke-DownloadWithRetry -Url $pythonUrl -OutFile $pythonZip
           Expand-Archive -Path $pythonZip -DestinationPath "./build/runtime" -Force
 
-          Write-Host "==== 下载并解压 PyStand ===="
-          $pystandUrl = "https://github.com/skywind3000/PyStand/releases/download/1.1.4/PyStand-v1.1.4-exe.zip"
+          Write-Host "==== 通过 GitHub API 下载并解压 PyStand（规避 releases/download 路径 504） ===="
           $pystandZip = "./dep_build/PyStand.zip"
-          Invoke-WebRequest -Uri $pystandUrl -OutFile $pystandZip
+          $pystandHeaders = @{ "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"; "Accept" = "application/vnd.github+json" }
+          $pystandAssetId = $null
+          for ($i = 1; $i -le 5; $i++) {
+              try {
+                  $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/skywind3000/PyStand/releases/tags/1.1.4" -Headers $pystandHeaders -TimeoutSec 60 -ErrorAction Stop
+                  $asset = $rel.assets | Where-Object { $_.name -eq "PyStand-v1.1.4-exe.zip" }
+                  if ($asset) { $pystandAssetId = $asset.id; break }
+                  throw "未找到 PyStand-v1.1.4-exe.zip 资产"
+              } catch {
+                  Write-Host "解析 PyStand 资产失败(第 $i/5 次): $($_.Exception.Message)"
+                  Start-Sleep -Seconds (15 * $i)
+              }
+          }
+          if (-not $pystandAssetId) { throw "无法解析 PyStand 资产 ID" }
+          $pystandHeaders["Accept"] = "application/octet-stream"
+          Invoke-DownloadWithRetry -Url "https://api.github.com/repos/skywind3000/PyStand/releases/assets/$pystandAssetId" -OutFile $pystandZip -Headers $pystandHeaders
           Expand-Archive -Path $pystandZip -DestinationPath "./dep_build/PyStand" -Force
 
           Write-Host "==== 复制 PyStand.exe 到 build 并重命名 ===="
