@@ -29,6 +29,11 @@ dependencies = [
     "onnx",
     "onnxruntime",
     "opencv-python-headless",
+    # Intel macOS (x86_64): onnxruntime 1.19.2 is the last release with a
+    # macOS 11-compatible universal2 wheel; opencv 5.x x86_64 wheels require
+    # macOS 14+. See spec/macos-intel-adapt/plan.md (R1/R3).
+    "onnxruntime==1.19.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "opencv-python-headless<5; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "tencentcloud-sdk-python-tmt==3.1.70",  # newer releases remove TextTranslate
     "pdfminer-six==20250416",
     "gradio_pdf>=0.0.21",

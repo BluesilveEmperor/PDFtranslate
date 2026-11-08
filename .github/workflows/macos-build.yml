@@ -12,6 +12,15 @@ env:
 jobs:
   build-macos-exe:
     runs-on: macos-latest
+    strategy:
+      # 任一架构失败不阻塞另一架构（FR-004）
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            short: arm64
+          - arch: x86_64
+            short: x64
     steps:
       - name: checkout babeldoc metadata
         uses: actions/checkout@v6
@@ -29,41 +38,60 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v6
 
+      - name: 安装 Rosetta 2（x86_64 交叉构建需要）
+        if: matrix.arch == 'x86_64'
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
       - name: 构建（build.sh 自动检测 macOS 平台）
         env:
           ASSETS_ALLOW_DOWNLOAD: "1"
+          TARGET_ARCH: ${{ matrix.arch }}
         run: |
           bash build.sh
 
       - name: 打包 tar.gz（保留权限与符号链接）
         run: |
-          tar czf pdf2zh-macos-arm64.tar.gz build
-          ls -lh pdf2zh-macos-arm64.tar.gz
+          tar czf pdf2zh-macos-${{ matrix.short }}.tar.gz build
+          ls -lh pdf2zh-macos-${{ matrix.short }}.tar.gz
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: macos-exe
-          path: pdf2zh-macos-arm64.tar.gz
+          name: macos-exe-${{ matrix.short }}
+          path: pdf2zh-macos-${{ matrix.short }}.tar.gz
           if-no-files-found: error
           compression-level: 0
 
   test-macos-exe:
     needs:
       - build-macos-exe
+    # 单一架构构建失败时, 另一架构的冒烟测试仍照常执行（下载失败会给明确报错）
+    if: ${{ !cancelled() }}
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            short: arm64
+          - arch: x86_64
+            short: x64
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
 
+      - name: 安装 Rosetta 2（x86_64 冒烟测试需要）
+        if: matrix.arch == 'x86_64'
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
       - name: Download build artifact
         uses: actions/download-artifact@v8
         with:
-          name: macos-exe
+          name: macos-exe-${{ matrix.short }}
 
       - name: 解压 tar.gz
         run: |
-          tar xzf pdf2zh-macos-arm64.tar.gz
+          tar xzf pdf2zh-macos-${{ matrix.short }}.tar.gz
           ls -la build/runtime/bin/ | head -5
 
       - name: Test show version

@@ -27,8 +27,9 @@
 | `pdf2zh-win64.zip` | Windows 10/11 | x64 |
 | `pdf2zh-linux-x64.tar.gz` | Linux (glibc) | x64 |
 | `pdf2zh-macos-arm64.tar.gz` | macOS 11+ | Apple Silicon (M1-M4) |
+| `pdf2zh-macos-x64.tar.gz` | macOS 11+ | Intel (x86_64) |
 
-> macOS 仅提供 Apple Silicon 版；Intel 芯片 Mac 暂不支持便携版。
+> Intel 芯片 Mac 请下载 x64 版本。已知限制：`precise` 模式（`--mode precise`）在 Intel macOS 上暂不保证可用，请使用默认 `fast` 模式。
 
 ### Windows
 
@@ -397,7 +398,7 @@ ASSETS_ALLOW_DOWNLOAD=1 bash build.sh
 
 ## CI / CD
 
-三个手动触发的 GitHub Actions workflow 分别构建三平台产物（`exe-build.yml` / `linux-build.yml` / `macos-build.yml`），构建后自动做 GUI 冒烟测试（启动服务 + 轮询 7860 端口 + 验证离线资产恢复）；`release-assets.yml` 将三个构建 run 的产物汇总上传到 Release。
+三个手动触发的 GitHub Actions workflow 分别构建各平台产物（`exe-build.yml` / `linux-build.yml` / `macos-build.yml`，其中 macOS 为 arm64 + x64 双架构矩阵，x86_64 版由 Apple Silicon runner 交叉构建并在 Rosetta 2 下冒烟测试），构建后自动做 GUI 冒烟测试（启动服务 + 轮询 7860 端口 + 验证离线资产恢复）；`release-assets.yml` 将三个构建 run 的产物汇总上传到 Release。
 
 ## 已知问题与修复记录
 

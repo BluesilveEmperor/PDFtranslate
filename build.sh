@@ -82,6 +82,16 @@ fi
 # 与 Windows 版产物结构对称: build/{runtime, site-packages, 离线zip} + 启动器
 PY_VER="3.12"
 
+# 可选环境变量 TARGET_ARCH（仅 Linux/macOS 分支生效, Windows 分支忽略）:
+#   缺省/空  = 跟随本机架构（现状行为, 不变）
+#   x86_64   = macOS 下交叉构建 Intel x86_64 便携包:
+#              uv 架构限定请求安装 x86_64 python-build-standalone（失败时回退
+#              GitHub Releases 直接下载 install_only 包）, 依赖安装显式指定
+#              --python-platform x86_64-apple-darwin; 资产打包等步骤经 Rosetta 2
+#              执行 x86_64 解释器, 与 arm64 产物结构完全同构
+#   arm64    = macOS 下显式 arm64（与缺省在本机为 ARM 时等价）
+TARGET_ARCH="${TARGET_ARCH:-}"
+
 echo "==== 1/6 创建目录 ===="
 rm -rf build dep_build
 mkdir -p build dep_build
@@ -90,10 +100,37 @@ echo "==== 2/6 安装 uv, 下载 Python $PY_VER 便携版 (python-build-standalo
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$PWD/dep_build/uv" sh
 export UV_PYTHON_INSTALL_DIR="$PWD/dep_build/uv-python"
 UV="$PWD/dep_build/uv/uv"
-"$UV" python install "$PY_VER"
-PY_EXE="$("$UV" python find "$PY_VER")"
-PY_PREFIX="$(dirname "$(dirname "$PY_EXE")")"
-echo "便携 Python: $PY_EXE"
+
+# 交叉构建时依赖安装的目标平台覆盖（缺省为空数组 = 不覆盖, 行为不变）
+UV_PIP_PLATFORM_ARGS=()
+
+if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then
+    # ==== Intel macOS (x86_64) 交叉构建 ====
+    # 主/回退路径同为 Python 3.12.7 (x86_64-apple-darwin, install_only 布局)
+    PY_VER_X64="3.12.7"
+    PBS_TAG="20241016"
+    PY_ROOT="$UV_PYTHON_INSTALL_DIR/cpython-$PY_VER_X64-macos-x86_64-none"
+    if "$UV" python install "cpython-$PY_VER_X64-macos-x86_64-none" && [ -x "$PY_ROOT/install/bin/python3.12" ]; then
+        PY_PREFIX="$PY_ROOT/install"
+    elif [ -x "$PY_ROOT/bin/python3.12" ]; then
+        PY_PREFIX="$PY_ROOT"
+    else
+        echo "uv 架构限定安装不可用, 回退 GitHub Releases 直接下载 (tag $PBS_TAG)"
+        curl -L -o dep_build/cpython-x64.tar.gz \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG/cpython-$PY_VER_X64+$PBS_TAG-x86_64-apple-darwin-install_only.tar.gz"
+        mkdir -p dep_build/pbs-x64
+        tar xzf dep_build/cpython-x64.tar.gz -C dep_build/pbs-x64
+        PY_PREFIX="$PWD/dep_build/pbs-x64/python"
+    fi
+    PY_EXE="$PY_PREFIX/bin/python3.12"
+    UV_PIP_PLATFORM_ARGS=(--python-platform x86_64-apple-darwin)
+    echo "交叉构建 x86_64 便携 Python: $PY_EXE"
+else
+    "$UV" python install "$PY_VER"
+    PY_EXE="$("$UV" python find "$PY_VER")"
+    PY_PREFIX="$(dirname "$(dirname "$PY_EXE")")"
+    echo "便携 Python: $PY_EXE"
+fi
 
 echo "==== 3/6 复制便携 Python → build/runtime ===="
 # -L 强制实体化: uv-python 下的 cpython-3.12-... 是指向 cpython-3.12.x-... 的
@@ -102,7 +139,7 @@ echo "==== 3/6 复制便携 Python → build/runtime ===="
 cp -rL "$PY_PREFIX" build/runtime
 
 echo "==== 4/6 安装依赖 → build/site-packages ===="
-"$UV" pip install --python "$PY_EXE" --target build/site-packages .
+"$UV" pip install --python "$PY_EXE" --target build/site-packages "${UV_PIP_PLATFORM_ARGS[@]}" .
 
 echo "==== 5/6 写 sitecustomize.py + 启动器 ===="
 cat > build/site-packages/sitecustomize.py << 'EOF'
@@ -165,4 +202,8 @@ echo "==== 构建完成！===="
 echo "输出目录: build/"
 echo "可执行文件: build/pdf2zh"
 echo "启动: ./build/pdf2zh --interactive"
-echo "分发: tar czf pdf2zh-$(uname -s | tr 'A-Z' 'a-z')-$(uname -m).tar.gz build/"
+if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then
+    echo "分发: tar czf pdf2zh-macos-x64.tar.gz build/"
+else
+    echo "分发: tar czf pdf2zh-$(uname -s | tr 'A-Z' 'a-z')-$(uname -m).tar.gz build/"
+fi
