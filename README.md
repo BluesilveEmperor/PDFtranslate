@@ -119,6 +119,7 @@ pdf2zh paper.pdf --ultrafast
 | `--conf` | | `0.25` | 布局检测置信度阈值 |
 | `--reserved-classes` | | `abandon,figure,table,isolate_formula,formula_caption` | 受保护不翻译的布局类别，可删减条目 |
 | `--mode` | | `fast` | 翻译模式：`fast`（v1）或 `precise`（v2） |
+| `--progress-style` | | `rich` | 终端进度条样式：`rich`（pip 风格彩色，默认）或 `plain`（纯色 tqdm）；也可用环境变量 `PDF2ZH_PROGRESS` 设置 |
 | `--babeldoc` | | | 使用 babeldoc 实验后端 |
 | `--interactive` | `-i` | | 启动 GUI |
 | `--serverport` | | | 自定义 WebUI 端口 |

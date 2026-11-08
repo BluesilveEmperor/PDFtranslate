@@ -2,12 +2,12 @@ from flask import Flask, request, send_file
 from celery import Celery, Task
 from celery.result import AsyncResult
 from pdf2zh import translate_stream
-import tqdm
 import json
 import io
 from string import Template
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
+from pdf2zh.progress import ProgressInfo
 
 flask_app = Flask("pdf2zh")
 flask_app.config.from_mapping(
@@ -42,9 +42,11 @@ def translate_task(
     stream: bytes,
     args: dict,
 ):
-    def progress_bar(t: tqdm.tqdm):
-        self.update_state(state="PROGRESS", meta={"n": t.n, "total": t.total})  # noqa
-        print(f"Translating {t.n} / {t.total} pages")
+    def progress_bar(info: ProgressInfo):
+        self.update_state(
+            state="PROGRESS", meta={"n": info.current, "total": info.total}
+        )  # noqa
+        print(f"Translating {info.current} / {info.total} pages")
 
     if "prompt" in args:
         args["prompt"] = Template(args["prompt"])

@@ -17,7 +17,6 @@ import typing as T
 
 import gradio as gr
 import requests
-import tqdm
 from gradio_pdf import PDF
 from string import Template
 import logging
@@ -26,6 +25,11 @@ from pdf2zh import __version__
 from pdf2zh.high_level import translate
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
+from pdf2zh.progress import (
+    ProgressInfo,
+    get_progress_style,
+    progress_info_from_event,
+)
 from pdf2zh.toolbox_gui import build_toolbox_tab
 from pdf2zh.translator import (
     AnythingLLMTranslator,
@@ -596,11 +600,8 @@ def translate_file(
 
     logger.debug("Files before translation: %s", os.listdir(output))
 
-    def progress_bar(t: tqdm.tqdm):
-        desc = getattr(t, "desc", "翻译中…")
-        if desc == "":
-            desc = "翻译中…"
-        progress(t.n / t.total, desc=desc)
+    def progress_bar(info: ProgressInfo):
+        progress(info.overall, desc=info.message or "翻译中…")
 
     try:
         threads = int(threads)
@@ -746,7 +747,7 @@ def babeldoc_translate_file(**kwargs):
             no_dual=False,
             no_mono=False,
             qps=kwargs["thread"],
-            use_rich_pbar=False,
+            use_rich_pbar=(get_progress_style() == "rich"),
             disable_rich_text_translate=not isinstance(translator, OpenAITranslator),
             skip_clean=kwargs["skip_subset_fonts"],
             report_interval=0.5,
@@ -761,7 +762,12 @@ def babeldoc_translate_file(**kwargs):
                     progress_handler(event)
                     if yadt_config.debug:
                         logger.debug(event)
-                    kwargs["callback"](progress_context)
+                    if event.get("type") in (
+                        "progress_start",
+                        "progress_update",
+                        "progress_end",
+                    ):
+                        kwargs["callback"](progress_info_from_event(event))
                     if kwargs["cancellation_event"].is_set():
                         yadt_config.cancel_translation()
                         raise CancelledError

@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from pdf2zh import __version__, log
 from pdf2zh.converter_docx import convert_to_pdf, is_convertible
+from pdf2zh.progress import get_progress_style, set_progress_style
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,15 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parse_params.add_argument(
+        "--progress-style",
+        type=str,
+        choices=["rich", "plain"],
+        default=None,
+        help="Terminal progress bar style: rich (colored, default) or plain. "
+        "Can also be set via the PDF2ZH_PROGRESS environment variable.",
+    )
+
+    parse_params.add_argument(
         "--babeldoc",
         default=False,
         action="store_true",
@@ -341,6 +351,11 @@ def main(args: Optional[List[str]] = None) -> int:
         return toolbox_main(raw_args[1:])
 
     parsed_args = parse_args(raw_args)
+
+    # CLI 显式指定的 --progress-style 优先于 PDF2ZH_PROGRESS 环境变量；
+    # 未指定时保持模块导入时由环境变量（或默认 rich）决定的样式。
+    if parsed_args.progress_style:
+        set_progress_style(parsed_args.progress_style)
 
     from rich.logging import RichHandler
 
@@ -593,6 +608,8 @@ def yadt_main(parsed_args) -> int:
             no_dual=False,
             no_mono=False,
             qps=parsed_args.thread,
+            # 联动全局进度样式：rich → babeldoc 内置 rich 彩条；plain → 纯色 tqdm
+            use_rich_pbar=(get_progress_style() == "rich"),
         )
 
         async def yadt_translate_coro(yadt_config):

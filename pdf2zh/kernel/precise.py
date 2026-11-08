@@ -13,6 +13,11 @@ from typing import Any, Optional
 
 from pdf2zh.kernel.v2_bridge import request_to_cli_args, request_to_env
 from pdf2zh.kernel.protocol import TranslateRequest, TranslateResult
+from pdf2zh.progress import (
+    ProgressInfo,
+    create_renderer,
+    progress_info_from_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +32,76 @@ def _venv_python() -> str:
     if sys.platform == "win32":
         return str(_VENV_DIR / "Scripts" / "python.exe")
     return str(_VENV_DIR / "bin" / "python")
+
+
+class _WorkerProgressDispatcher:
+    """Parent-side progress dispatcher for v2_worker stderr events.
+
+    v2_worker forwards babeldoc progress events as JSON lines on stderr
+    (progress_start / progress_update / progress_end).  The subprocess's own
+    rich live output cannot pass through the stderr pipe safely (multi-line
+    ANSI would be split per line), so the parent renders the progress bar
+    here and forwards the normalized :class:`ProgressInfo` to the registered
+    callback (GUI web progress / celery state).
+    """
+
+    _PROGRESS_EVENT_TYPES = ("progress_start", "progress_update", "progress_end")
+
+    def __init__(self, callback: Any = None) -> None:
+        self._callback = callback
+        self._renderer = create_renderer()
+        self._started = False
+
+    def process_line(self, raw_line: str, stderr_lines: list[str]) -> None:
+        """Handle one stderr line: progress event, other JSON, or plain log."""
+        line = raw_line.strip()
+        if not line:
+            return
+        stderr_lines.append(line)
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            print(line, file=sys.stderr, flush=True)
+            return
+        if not isinstance(event, dict) or not self._dispatch(event):
+            # 非进度 JSON（如 error 事件）与普通日志行原样透传到父进程 stderr
+            print(line, file=sys.stderr, flush=True)
+
+    def _start_or_reset(self, total: Optional[float], message: str) -> None:
+        if not self._started:
+            self._renderer.start(total=total, message=message)
+            self._started = True
+        else:
+            # 各阶段分行显示：前一阶段定格，新阶段另起一行
+            self._renderer.reset(total=total, message=message)
+
+    def _dispatch(self, event: dict) -> bool:
+        """Route one decoded event; returns False for non-progress events."""
+        event_type = event.get("type", "")
+        if event_type not in self._PROGRESS_EVENT_TYPES:
+            return False
+        info: ProgressInfo = progress_info_from_event(event)
+        total = info.total or None
+        if event_type == "progress_start":
+            self._start_or_reset(total, info.message)
+        elif event_type == "progress_update":
+            if not self._started:
+                self._start_or_reset(total, info.message)
+            self._renderer.update(
+                current=info.current, total=info.total, message=info.message
+            )
+        else:  # progress_end
+            self._renderer.update(
+                current=max(info.current, info.total),
+                total=info.total,
+                message=info.message,
+            )
+        if self._callback:
+            self._callback(info)
+        return True
+
+    def close(self) -> None:
+        self._renderer.close()
 
 
 class PreciseKernel:
@@ -145,6 +220,7 @@ class PreciseKernel:
         )
 
         stderr_lines: list[str] = []
+        dispatcher = _WorkerProgressDispatcher(callback)
         try:
             assert proc.stdin is not None
             assert proc.stderr is not None
@@ -153,18 +229,7 @@ class PreciseKernel:
             proc.stdin.close()
 
             for line in proc.stderr:
-                line = line.strip()
-                if not line:
-                    continue
-                stderr_lines.append(line)
-                try:
-                    event = json.loads(line)
-                    if not isinstance(event, dict):
-                        raise ValueError("not a JSON object")
-                    if callback:
-                        callback(event)
-                except (json.JSONDecodeError, ValueError):
-                    print(line, file=sys.stderr, flush=True)
+                dispatcher.process_line(line, stderr_lines)
 
             stdout = proc.stdout.read()
             proc.wait()
@@ -172,6 +237,8 @@ class PreciseKernel:
         except Exception:
             proc.kill()
             raise
+        finally:
+            dispatcher.close()
 
         if proc.returncode != 0:
             detail = "\n".join(stderr_lines[-20:]) if stderr_lines else "(no stderr)"
@@ -216,12 +283,32 @@ class PreciseKernel:
             cwd=str(_SUBMODULE_DIR),
             env=env,
         )
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        assert proc.stderr is not None
 
-        stdout_bytes, stderr_bytes = await proc.communicate(input=input_json.encode())
+        dispatcher = _WorkerProgressDispatcher(callback)
+        stderr_lines: list[str] = []
+        try:
+            proc.stdin.write(input_json.encode())
+            await proc.stdin.drain()
+            proc.stdin.close()
+
+            # 逐行流式消费 stderr：进度事件实时渲染，非进度行原样透传
+            async for line in proc.stderr:
+                dispatcher.process_line(line, stderr_lines)
+
+            stdout_bytes = await proc.stdout.read()
+            await proc.wait()
+        except Exception:
+            proc.kill()
+            raise
+        finally:
+            dispatcher.close()
         stdout = stdout_bytes.decode()
 
         if proc.returncode != 0:
-            detail = stderr_bytes.decode()[-2000:] if stderr_bytes else "(no stderr)"
+            detail = "\n".join(stderr_lines[-20:]) if stderr_lines else "(no stderr)"
             raise RuntimeError(
                 f"Precise kernel subprocess failed (exit {proc.returncode}):\n{detail}"
             )

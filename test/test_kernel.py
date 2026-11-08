@@ -520,9 +520,15 @@ class TestPreciseKernelTranslation(unittest.TestCase):
         k.translate(req, callback=callback)
 
         callback.assert_called_once()
-        event_arg = callback.call_args[0][0]
-        self.assertEqual(event_arg["type"], "progress_update")
-        self.assertEqual(event_arg["stage"], "Translating")
+        info_arg = callback.call_args[0][0]
+        from pdf2zh.progress import ProgressInfo
+
+        self.assertIsInstance(info_arg, ProgressInfo)
+        self.assertEqual(info_arg.stage, "Translating")
+        self.assertEqual(info_arg.current, 5)
+        self.assertEqual(info_arg.total, 10)
+        # overall_progress 事件值为 0–100 刻度，归一化为 0.0–1.0
+        self.assertAlmostEqual(info_arg.overall, 0.25)
 
 
 class TestV2BridgeEndToEnd(unittest.TestCase):

@@ -20,7 +20,6 @@ from typing import Any, BinaryIO, List, Optional, Dict, TYPE_CHECKING
 
 import numpy as np
 import requests
-import tqdm
 
 from pdf2zh.converter_docx import convert_to_pdf, is_convertible
 from pdfminer.pdfdocument import PDFDocument
@@ -38,6 +37,7 @@ from pdf2zh.pdfinterp import PDFPageInterpreterEx
 
 from pdf2zh.config import ConfigManager
 from pdf2zh.app_paths import cache_dir
+from pdf2zh.progress import ProgressInfo, create_renderer
 
 NOTO_NAME = "noto"
 
@@ -146,8 +146,37 @@ def translate_patch(
                 perf.add("layout_extract", perf_counter() - started)
             inf.seek(0)
     pending_pages = []
+    # 终端进度渲染器（rich 彩色 / plain 纯色，样式见 pdf2zh/progress.py）。
+    # overall 跨阶段单调不减；ultrafast 三阶段权重：
+    #   page_scan 0–10% → translate_paragraphs 10–90% → typeset 90–100%
+    progress = create_renderer()
+    progress.start(total=total_pages, message="Translating")
+    overall = 0.0
+
+    def report_progress(
+        stage: str, message: str, base: float, span: float
+    ) -> None:
+        """构造 ProgressInfo 并回调消费方（GUI 网页 / celery / MCP）。"""
+        nonlocal overall
+        current = progress.current
+        total = progress.total or 0
+        frac = current / total if total else 1.0
+        value = base + span * frac
+        if value > overall:
+            overall = value
+        if callback:
+            callback(
+                ProgressInfo(
+                    stage=stage,
+                    current=current,
+                    total=total,
+                    overall=overall,
+                    message=message,
+                )
+            )
+
     with (
-        tqdm.tqdm(total=total_pages, mininterval=0, disable=False, dynamic_ncols=True) as progress,
+        progress,
         ThreadPoolExecutor(max_workers=thread) if ultrafast else nullcontext() as pool,
     ):
         if ultrafast:
@@ -158,9 +187,8 @@ def translate_patch(
                 raise CancelledError("task cancelled")
             if pages and (pageno not in pages):
                 continue
-            progress.update()
-            if callback:
-                callback(progress)
+            progress.advance()
+            report_progress("page_scan", "Translating", 0.0, 0.1 if ultrafast else 1.0)
             page.pageno = pageno
             page_started = perf_counter() if perf else 0
             if ultrafast:
@@ -245,30 +273,31 @@ def translate_patch(
                 thread,
             )
             started = perf_counter()
-            progress.reset(total=len(device.translation_futures))
-            progress.set_description("Translate paragraphs")
+            progress.reset(
+                total=len(device.translation_futures),
+                message="Translate paragraphs",
+            )
             for future in as_completed(device.translation_futures):
                 future.result()  # Surface failures before the interpreter's form guards.
                 if cancellation_event and cancellation_event.is_set():
                     raise CancelledError("task cancelled")
-                progress.update()
-                if callback:
-                    callback(progress)
+                progress.advance()
+                report_progress(
+                    "translate_paragraphs", "Translate paragraphs", 0.1, 0.8
+                )
             if perf:
                 perf.add("translation", perf_counter() - started)
             device.translation_pool = None
             # ponytail: replay the cheap parser to retain per-page/form font state.
             # A stored paragraph plan is only worthwhile if parsing becomes costly.
-            progress.reset(total=len(pending_pages))
-            progress.set_description("Typeset pages")
+            progress.reset(total=len(pending_pages), message="Typeset pages")
             for page in pending_pages:
                 if cancellation_event and cancellation_event.is_set():
                     raise CancelledError("task cancelled")
                 started = perf_counter()
                 interpreter.process_page(page)
-                progress.update()
-                if callback:
-                    callback(progress)
+                progress.advance()
+                report_progress("typeset", "Typeset pages", 0.9, 0.1)
                 if perf:
                     logger.info(
                         "[ultrafast perf] page_render %d: %.3fs",

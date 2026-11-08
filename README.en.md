@@ -119,6 +119,7 @@ Common options:
 | `--conf` | | `0.25` | Layout detection confidence threshold |
 | `--reserved-classes` | | `abandon,figure,table,isolate_formula,formula_caption` | Layout classes protected from translation; remove entries to translate misdetected regions |
 | `--mode` | | `fast` | Translation mode: `fast` (v1) or `precise` (v2) |
+| `--progress-style` | | `rich` | Terminal progress bar style: `rich` (pip-style colored, default) or `plain` (plain tqdm); can also be set via the `PDF2ZH_PROGRESS` environment variable |
 | `--babeldoc` | | | Use the experimental babeldoc backend |
 | `--interactive` | `-i` | | Launch the GUI |
 | `--serverport` | | | Custom WebUI port |
