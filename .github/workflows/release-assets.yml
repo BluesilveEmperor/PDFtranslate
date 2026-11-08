@@ -12,6 +12,10 @@ on:
       mac_run_id:
         description: 'macOS build run ID'
         required: true
+      release_tag:
+        description: 'Release tag to upload assets to (e.g., v2.0.0)'
+        required: true
+        type: string
 
 jobs:
   upload:
@@ -22,7 +26,7 @@ jobs:
       # gh release upload 需要 contents:write
       contents: write
     steps:
-      - name: Download and upload artifacts to release v0.0.1
+      - name: Download and upload artifacts to release ${{ inputs.release_tag }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WIN_RUN_ID: ${{ inputs.win_run_id }}
@@ -59,4 +63,4 @@ jobs:
           cd ..
           ls -lh pkg/
 
-          gh release upload v0.0.1 pdf2zh-win64.zip pkg/pdf2zh-linux-x64.tar.gz pkg/pdf2zh-macos-arm64.tar.gz pkg/pdf2zh-macos-x64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "${{ inputs.release_tag }}" pdf2zh-win64.zip pkg/pdf2zh-linux-x64.tar.gz pkg/pdf2zh-macos-arm64.tar.gz pkg/pdf2zh-macos-x64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
