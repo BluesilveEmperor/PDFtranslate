@@ -1,6 +1,8 @@
-# PDFMathTranslate
+# PDFTranslate
 
 **简体中文 | [English](README.en.md)**
+
+HarmonyOS版准备中
 
 科学 PDF 文档翻译工具，保留原始排版、公式、图表和注释。
 
