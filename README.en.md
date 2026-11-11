@@ -2,6 +2,8 @@
 
 **[简体中文](README.md) | English**
 
+The version for HarmonyOS is on the way. 
+
 A scientific PDF document translator that preserves the original layout, formulas, charts, and annotations.
 
 This is a personally maintained fork with the following enhancements: cross-platform portable builds (Windows / Linux / macOS), offline asset bundling, translation defect fixes, and GUI polish.
