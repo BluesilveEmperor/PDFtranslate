@@ -8,8 +8,6 @@ This is a personally maintained fork with the following enhancements: cross-plat
 
 🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
 
-🧩 **Companion Zotero plugin**: [PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) — translate PDFs inside Zotero with bilingual layouts, cropped reading and batch processing.
-
 ## Features
 
 - 📊 Preserves formulas, charts, tables of contents, and annotations
