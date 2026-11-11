@@ -8,8 +8,6 @@
 
 🧩 **配套 Zotero 插件**：[PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) —— 在 Zotero 内直接调用本项目翻译 PDF，支持双语对照、裁剪阅读与批量翻译。
 
-🧩 **配套 Zotero 插件**：[PDFTranslate-Zotero](https://github.com/BluesilveEmperor/PDFTranslate-Zotero) —— 在 Zotero 内直接调用本项目翻译 PDF，支持双语对照、裁剪阅读与批量翻译。
-
 ## 功能特性
 
 - 📊 保留公式、图表、目录和批注
