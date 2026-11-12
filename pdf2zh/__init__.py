@@ -31,7 +31,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-__version__ = "1.9.12"
+__version__ = "2.0.0"
 __author__ = "Byaidu"
 __all__ = ["translate", "translate_stream"]
 

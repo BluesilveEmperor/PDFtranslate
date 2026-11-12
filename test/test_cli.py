@@ -19,7 +19,7 @@ class TestCliVersion(unittest.TestCase):
     def test_importing_package_does_not_eagerly_load_translation_pipeline(self):
         pkg = importlib.import_module("pdf2zh")
 
-        self.assertEqual(pkg.__version__, "1.9.12")
+        self.assertEqual(pkg.__version__, "2.0.0")
         self.assertNotIn("pdf2zh.high_level", sys.modules)
 
     def test_version_flag_exits_before_loading_heavy_modules(self):
