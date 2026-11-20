@@ -28,6 +28,8 @@ jobs:
           key: test-1-babeldoc-assets-${{ hashFiles('babeldoctemp1234567/babeldoc/assets/embedding_assets_metadata.py') }}
       - name: 检出代码
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: 构建（build.sh 自动检测 Linux 平台）
         env:

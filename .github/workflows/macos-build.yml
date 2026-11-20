@@ -37,6 +37,8 @@ jobs:
           key: test-1-babeldoc-assets-${{ hashFiles('babeldoctemp1234567/babeldoc/assets/embedding_assets_metadata.py') }}
       - name: 检出代码
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: 安装 Rosetta 2（x86_64 交叉构建需要）
         if: matrix.arch == 'x86_64'

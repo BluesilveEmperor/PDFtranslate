@@ -30,6 +30,8 @@ jobs:
           key: test-1-babeldoc-assets-${{ hashFiles('babeldoctemp1234567/babeldoc/assets/embedding_assets_metadata.py') }}
       - name: 检出代码
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup uv with Python ${{ env.WIN_EXE_PYTHON_VERSION }}
         uses: astral-sh/setup-uv@85856786d1ce8acfbcc2f13a5f3fbd6b938f9f41 # v7.1.2
@@ -83,6 +85,13 @@ jobs:
           Invoke-DownloadWithRetry -Url $pythonUrl -OutFile $pythonZip
           Expand-Archive -Path $pythonZip -DestinationPath "./build/runtime" -Force
 
+          Write-Host "==== 注入运行时 BitStream shim (babeldoc spawn 子进程必需) ===="
+          (Get-Content "./build/runtime/python312._pth") -replace '#import site','import site' | Set-Content "./build/runtime/python312._pth" -Encoding ascii
+          New-Item -Path "./build/runtime/Lib/site-packages" -ItemType Directory -Force | Out-Null
+          Set-Content -Path "./build/runtime/Lib/site-packages/precise_kernel.pth" -Value "../../../site-packages/pdf2zh/kernel/_precise_packages`nimport bitstream_shim" -Encoding ascii
+          Set-Content -Path "./build/runtime/Lib/site-packages/bitstream_shim.py" -Value "try:`n    from bitstring import BitStream`nexcept ImportError:`n    import bitstring`n    bitstring.BitStream = bitstring.BitArray" -Encoding utf8
+          Set-Content -Path "./build/runtime/sitecustomize.py" -Value "import sys as _sys`nfor _p in [p for p in _sys.path if ('Roaming\\Python' in p) or ('Roaming/Python' in p)]:`n    _sys.path.remove(_p)" -Encoding utf8
+
           Write-Host "==== 通过 GitHub API 下载并解压 PyStand（规避 releases/download 路径 504） ===="
           $pystandZip = "./dep_build/PyStand.zip"
           $pystandHeaders = @{ "Authorization" = "token ${{ secrets.GITHUB_TOKEN }}"; "Accept" = "application/vnd.github+json" }
@@ -122,6 +131,9 @@ jobs:
 
           Write-Host "==== 写 BitStream 兼容层 (sitecustomize.py) ===="
           Set-Content -Path "./dep_build/venv/Lib/site-packages/sitecustomize.py" -Value "try:`n    from bitstring import BitStream`nexcept ImportError:`n    from bitstring import BitArray`n    import bitstring`n    bitstring.BitStream = BitArray" -Encoding utf8
+
+          Write-Host "==== 捆装 precise 内核依赖到 _precise_packages ===="
+          uv pip install --target "./dep_build/venv/Lib/site-packages/pdf2zh/kernel/_precise_packages" "./pdf2zh/kernel/PDFMathTranslate-next.git"
 
           Write-Host "==== 复制 venv/Lib/site-packages 到 build/ ===="
           Copy-Item -Path "./dep_build/venv/Lib/site-packages" -Destination "./build/site-packages" -Recurse -Force
