@@ -132,18 +132,20 @@ jobs:
           Write-Host "==== 写 BitStream 兼容层 (sitecustomize.py) ===="
           Set-Content -Path "./dep_build/venv/Lib/site-packages/sitecustomize.py" -Value "try:`n    from bitstring import BitStream`nexcept ImportError:`n    from bitstring import BitArray`n    import bitstring`n    bitstring.BitStream = BitArray" -Encoding utf8
 
+          Write-Host "==== 复制 venv/Lib/site-packages 到 build/ ===="
+          # 注意: 此步骤必须先于捆装——Copy-Item -Recurse 在目标目录已存在时
+          # 会把源目录复制成目标的子目录 (build/site-packages/site-packages/),
+          # 因此捆装副本要在快照复制完成后再添加
+          Copy-Item -Path "./dep_build/venv/Lib/site-packages" -Destination "./build/site-packages" -Recurse -Force
+
           Write-Host "==== 捆装 precise 内核依赖到 _precise_packages (staging 隔离) ===="
           # 先装进独立 staging 目录再复制: 直接 --target 到主 site-packages
-          # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序。bitstring 3.x
-          # 自带 BitStream, 免 shim。
+          # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序
           If (Test-Path "./dep_build/_precise_stage") { Remove-Item "./dep_build/_precise_stage" -Recurse -Force }
           uv pip install --target "./dep_build/_precise_stage" "./pdf2zh/kernel/PDFMathTranslate-next.git"
           New-Item -Path "./build/site-packages/pdf2zh/kernel" -ItemType Directory -Force | Out-Null
           If (Test-Path "./build/site-packages/pdf2zh/kernel/_precise_packages") { Remove-Item "./build/site-packages/pdf2zh/kernel/_precise_packages" -Recurse -Force }
           Copy-Item "./dep_build/_precise_stage" "./build/site-packages/pdf2zh/kernel/_precise_packages" -Recurse
-
-          Write-Host "==== 复制 venv/Lib/site-packages 到 build/ ===="
-          Copy-Item -Path "./dep_build/venv/Lib/site-packages" -Destination "./build/site-packages" -Recurse -Force
 
           Write-Host "==== 复制 script/_pystand_static.int 到 build/ ===="
           $staticFile = "./script/_pystand_static.int"
