@@ -10,13 +10,14 @@
     python script/package_win64.py --fast          # 不压缩（打包更快，体积更大）
     python script/package_win64.py --source build  # 指定产物目录
 
-校验规则（缺一不可，缺了就报错退出）:
-    build/pdf2zh.exe
-    build/_pystand_static.int
-    build/runtime/python.exe
-    build/runtime/Lib/site-packages/precise_kernel.pth   # precise 内核 shim
-    build/site-packages/pdf2zh/kernel/_precise_packages/pdf2zh_next  # precise 捆绑依赖
-    build/offline_assets_*.zip                           # babeldoc 离线资源
+校验规则:
+    必需: build/pdf2zh.exe、_pystand_static.int、runtime/python.exe、
+          build/site-packages/sitecustomize.py、offline_assets_*.zip
+    可选 precise 捆绑组（BUNDLE_PRECISE=0 构建的轻量包则不要求）:
+          runtime/Lib/site-packages/{precise_kernel.pth,bitstream_shim.py}
+          site-packages/pdf2zh/kernel/_precise_packages/pdf2zh_next
+    捆绑存在 -> dist/pdf2zh-win64-v<版本>.zip
+    未捆绑   -> dist/pdf2zh-win64-v<版本>-fast.zip（仅 fast 模式）
 """
 
 from __future__ import annotations
@@ -39,11 +40,18 @@ REQUIRED = [
     "pdf2zh.exe",
     "_pystand_static.int",
     "runtime/python.exe",
-    "runtime/Lib/site-packages/precise_kernel.pth",
-    "site-packages/pdf2zh/kernel/_precise_packages/pdf2zh_next",
+    "site-packages/sitecustomize.py",
 ]
 
 REQUIRED_GLOB = ["offline_assets_*.zip"]
+
+# precise 捆绑组：目录存在时这些条目必须齐全；目录不存在则为轻量包（fast-only）
+PRECISE_DIR = "site-packages/pdf2zh/kernel/_precise_packages"
+PRECISE_GROUP = [
+    "runtime/Lib/site-packages/precise_kernel.pth",
+    "runtime/Lib/site-packages/bitstream_shim.py",
+    PRECISE_DIR + "/pdf2zh_next",
+]
 
 
 def read_version() -> str:
@@ -55,8 +63,8 @@ def read_version() -> str:
     return m.group(1)
 
 
-def validate(source: Path) -> None:
-    """打包前完整性校验。"""
+def validate(source: Path) -> bool:
+    """打包前完整性校验。返回是否为 precise 捆绑包。"""
     missing = [rel for rel in REQUIRED if not (source / rel).exists()]
     for pattern in REQUIRED_GLOB:
         if not list(source.glob(pattern)):
@@ -67,6 +75,17 @@ def validate(source: Path) -> None:
             + "\n  ".join(missing)
             + "\n请先运行 build.sh 完成构建。"
         )
+
+    bundled = (source / PRECISE_DIR).is_dir()
+    if bundled:
+        group_missing = [rel for rel in PRECISE_GROUP if not (source / rel).exists()]
+        if group_missing:
+            raise SystemExit(
+                "错误: precise 捆绑不完整，缺少:\n  " + "\n  ".join(group_missing)
+            )
+    else:
+        print("轻量包（未捆绑 precise 内核，打包版仅支持 fast 模式）")
+    return bundled
 
 
 def iter_files(source: Path):
@@ -96,10 +115,15 @@ def main() -> None:
     source = (REPO_ROOT / args.source).resolve()
     if not source.is_dir():
         raise SystemExit(f"错误: 产物目录不存在: {source}")
-    validate(source)
+    bundled = validate(source)
 
     version = read_version()
-    output = Path(args.output) if args.output else REPO_ROOT / "dist" / f"pdf2zh-win64-v{version}.zip"
+    variant = "" if bundled else "-fast"
+    output = (
+        Path(args.output)
+        if args.output
+        else REPO_ROOT / "dist" / f"pdf2zh-win64-v{version}{variant}.zip"
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
 
     compression = zipfile.ZIP_STORED if args.fast else zipfile.ZIP_DEFLATED

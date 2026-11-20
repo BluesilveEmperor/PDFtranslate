@@ -16,8 +16,11 @@ echo "==== 构建平台: $PLATFORM ===="
 #       （WSL 里复用 Windows 侧缓存: /mnt/c/Users/<user>/.cache/babeldoc）
 #   ASSETS_ALLOW_DOWNLOAD=1                    缓存缺失时联网 warmup 下载
 #       （CI / 网络畅通环境使用）
+#   BUNDLE_PRECISE=0                           不捆绑 precise 内核依赖
+#       （包体积 -约450MB；打包版将不可用 precise 模式，默认 1 捆绑）
 ASSETS_CACHE_DIR="${ASSETS_CACHE_DIR:-}"
 ASSETS_ALLOW_DOWNLOAD="${ASSETS_ALLOW_DOWNLOAD:-0}"
+BUNDLE_PRECISE="${BUNDLE_PRECISE:-1}"
 
 build_offline_assets () {
     # $1: python 解释器  $2: 输出目录
@@ -62,18 +65,22 @@ if [ "$PLATFORM" = "windows" ]; then
     PY_EXE="$(cygpath -u "$(uv python find 3.12)")"
     uv pip install --python "$PY_EXE" --target build/site-packages .
 
-    echo "==== 4b/7 捆绑 precise 内核依赖 (pdf2zh_next) ===="
-    # precise 内核在便携包内以"捆绑模式"运行: 依赖预装到
-    # build/site-packages/pdf2zh/kernel/_precise_packages, 运行时由
-    # precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
-    if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
-        echo "错误: precise 内核 submodule 未初始化" >&2
-        echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
-        exit 1
+    if [ "$BUNDLE_PRECISE" = "1" ]; then
+        echo "==== 4b/7 捆绑 precise 内核依赖 (pdf2zh_next) ===="
+        # precise 内核在便携包内以"捆绑模式"运行: 依赖预装到
+        # build/site-packages/pdf2zh/kernel/_precise_packages, 运行时由
+        # precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
+        if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
+            echo "错误: precise 内核 submodule 未初始化" >&2
+            echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
+            exit 1
+        fi
+        uv pip install --python "$PY_EXE" \
+            --target build/site-packages/pdf2zh/kernel/_precise_packages \
+            ./pdf2zh/kernel/PDFMathTranslate-next.git
+    else
+        echo "==== 4b/7 跳过 precise 捆绑 (BUNDLE_PRECISE=0, 包体积更小) ===="
     fi
-    uv pip install --python "$PY_EXE" \
-        --target build/site-packages/pdf2zh/kernel/_precise_packages \
-        ./pdf2zh/kernel/PDFMathTranslate-next.git
 
     echo "==== 5/7 写 sitecustomize.py (BitStream 兼容层) ===="
     cat > build/site-packages/sitecustomize.py << 'EOF'

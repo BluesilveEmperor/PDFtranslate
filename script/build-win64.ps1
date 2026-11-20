@@ -60,15 +60,20 @@ Write-Host "==== Installing project dependencies ===="
 uv pip install .
 
 Write-Host "==== Bundling precise kernel dependencies (pdf2zh_next) ===="
-$submodule = "./pdf2zh/kernel/PDFMathTranslate-next.git"
-if (-not (Test-Path "$submodule/pyproject.toml")) {
-    Write-Host "错误: precise 内核 submodule 未初始化" -ForegroundColor Red
-    Write-Host "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git"
-    exit 1
+# BUNDLE_PRECISE=0 可跳过捆绑（包体积 -约450MB，打包版将不可用 precise 模式）
+if ($env:BUNDLE_PRECISE -eq "0") {
+    Write-Host "BUNDLE_PRECISE=0, skipping precise kernel bundling"
+} else {
+    $submodule = "./pdf2zh/kernel/PDFMathTranslate-next.git"
+    if (-not (Test-Path "$submodule/pyproject.toml")) {
+        Write-Host "错误: precise 内核 submodule 未初始化" -ForegroundColor Red
+        Write-Host "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git"
+        exit 1
+    }
+    # 捆绑模式: 预装到 site-packages/pdf2zh/kernel/_precise_packages,
+    # 运行时由 precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
+    uv pip install --target "./dep_build/venv/Lib/site-packages/pdf2zh/kernel/_precise_packages" $submodule
 }
-# 捆绑模式: 预装到 site-packages/pdf2zh/kernel/_precise_packages,
-# 运行时由 precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
-uv pip install --target "./dep_build/venv/Lib/site-packages/pdf2zh/kernel/_precise_packages" $submodule
 
 Write-Host "==== Copying site-packages to build ===="
 Copy-Item -Path "./dep_build/venv/Lib/site-packages" -Destination "./build/site-packages" -Recurse -Force
