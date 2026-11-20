@@ -109,7 +109,12 @@ def uv_python() -> str:
 
 
 def write_runtime_shim(runtime_dir: Path) -> None:
-    """给 embed 运行时注入 BitStream shim（babeldoc spawn 子进程必需）。"""
+    """给 embed 运行时注入 BitStream shim（babeldoc spawn 子进程必需）。
+
+    pth 不追加 _precise_packages 路径——PyStand 主进程混入捆绑目录会污染
+    主程序依赖解析；spawn 子进程从 worker 父进程继承 sys.path（bootstrap
+    已注入捆绑目录），天然可见 bitstring。bitstring 3.x 时 shim 为 no-op。
+    """
     pth = runtime_dir / "python312._pth"
     text = pth.read_text(encoding="utf-8")
     if "#import site" in text:
@@ -118,8 +123,7 @@ def write_runtime_shim(runtime_dir: Path) -> None:
     site_dir = runtime_dir / "Lib" / "site-packages"
     site_dir.mkdir(parents=True, exist_ok=True)
     (site_dir / "precise_kernel.pth").write_text(
-        "../../../site-packages/pdf2zh/kernel/_precise_packages\nimport bitstream_shim\n",
-        encoding="utf-8",
+        "import bitstream_shim\n", encoding="utf-8"
     )
     (site_dir / "bitstream_shim.py").write_text(
         "try:\n"
@@ -180,21 +184,35 @@ def main() -> None:
     step("4/7 uv 安装主依赖 -> build/site-packages")
     run(["uv", "pip", "install", "--python", py_exe, "--target", BUILD_DIR / "site-packages", "."])
 
-    # ==== 4b/7 precise 捆绑 ====
+    # ==== 4b/7 precise 捆装 ====
     if args.no_precise:
-        step("4b/7 跳过 precise 捆绑 (--no-precise, 轻量包)")
+        step("4b/7 跳过 precise 捆装 (--no-precise, 轻量包)")
     else:
-        step("4b/7 捆绑 precise 内核依赖 (pdf2zh_next)")
+        step("4b/7 捆装 precise 内核依赖 (pdf2zh_next)")
         if not (SUBMODULE / "pyproject.toml").exists():
             raise SystemExit(
                 "错误: precise 内核 submodule 未初始化\n"
                 "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git"
             )
+        # 先装进独立 staging 目录再复制: 直接 --target 到主 site-packages
+        # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序。
+        # bitstring 固定 3.x: 自带 BitStream, babeldoc 兼容, 各进程免 shim。
+        stage = DEP_DIR / "_precise_stage"
+        if stage.exists():
+            shutil.rmtree(stage)
+        constraints = DEP_DIR / "_precise_constraints.txt"
+        constraints.write_text("bitstring==3.1.11\n", encoding="utf-8")
         run([
             "uv", "pip", "install", "--python", py_exe,
-            "--target", BUILD_DIR / "site-packages" / "pdf2zh" / "kernel" / "_precise_packages",
+            "--target", stage,
+            "-c", constraints,
             SUBMODULE,
         ])
+        dest = BUILD_DIR / "site-packages" / "pdf2zh" / "kernel" / "_precise_packages"
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(stage, dest)
 
     # ==== 5/7 主 sitecustomize ====
     step("5/7 写 sitecustomize.py (BitStream 兼容层)")

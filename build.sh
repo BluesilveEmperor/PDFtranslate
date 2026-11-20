@@ -66,20 +66,30 @@ if [ "$PLATFORM" = "windows" ]; then
     uv pip install --python "$PY_EXE" --target build/site-packages .
 
     if [ "$BUNDLE_PRECISE" = "1" ]; then
-        echo "==== 4b/7 捆绑 precise 内核依赖 (pdf2zh_next) ===="
-        # precise 内核在便携包内以"捆绑模式"运行: 依赖预装到
+        echo "==== 4b/7 捆装 precise 内核依赖 (pdf2zh_next) ===="
+        # precise 内核在便携包内以"捆装模式"运行: 依赖预装到
         # build/site-packages/pdf2zh/kernel/_precise_packages, 运行时由
         # precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
+        #
+        # 注意: 先装进独立 staging 目录再复制——直接 --target 到主
+        # site-packages 会把共享依赖(如 tencentcloud-sdk)升级成新版本,
+        # 污染主程序运行环境。bitstring 固定 3.x: 3.x 自带 BitStream,
+        # babeldoc 兼容, 各进程无需再打 shim。
         if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
             echo "错误: precise 内核 submodule 未初始化" >&2
             echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
             exit 1
         fi
+        rm -rf dep_build/_precise_stage
         uv pip install --python "$PY_EXE" \
-            --target build/site-packages/pdf2zh/kernel/_precise_packages \
+            --target dep_build/_precise_stage \
+            --constraints <(echo 'bitstring==3.1.11') \
             ./pdf2zh/kernel/PDFMathTranslate-next.git
+        mkdir -p build/site-packages/pdf2zh/kernel
+        rm -rf build/site-packages/pdf2zh/kernel/_precise_packages
+        cp -r dep_build/_precise_stage build/site-packages/pdf2zh/kernel/_precise_packages
     else
-        echo "==== 4b/7 跳过 precise 捆绑 (BUNDLE_PRECISE=0, 包体积更小) ===="
+        echo "==== 4b/7 跳过 precise 捆装 (BUNDLE_PRECISE=0, 包体积更小) ===="
     fi
 
     echo "==== 5/7 写 sitecustomize.py (BitStream 兼容层) ===="
@@ -96,14 +106,14 @@ EOF
     # embed 运行时 python312._pth 默认不执行 site; babeldoc spawn 的子进程
     # 走裸 python.exe 初始化, 不经过 PyStand/worker bootstrap, 缺 BitStream
     # shim 会 ImportError 并导致 babeldoc 无限重试。
-    # 启用 import site 后, runtime/Lib/site-packages 成为标准 site 目录:
-    #   - precise_kernel.pth 把捆绑的 _precise_packages 追加进 sys.path
-    #   - 并执行 import bitstream_shim 给当前进程打上 BitStream 兼容层
-    # 对所有 python.exe 进程生效 (PyStand 父进程 / worker / spawn 子进程)。
+    # 启用 import site 后, runtime/Lib/site-packages 成为标准 site 目录,
+    # bitstream_shim.py 对所有 python.exe 进程生效。
+    # 注意: pth 不追加 _precise_packages 路径——PyStand 主进程若混入捆绑
+    # 目录会污染主程序依赖解析; spawn 子进程从 worker 父进程继承 sys.path
+    # (precise.py bootstrap 已注入), 天然可见捆绑目录。
     sed -i 's/^#import site/import site/' build/runtime/python312._pth
     mkdir -p build/runtime/Lib/site-packages
     cat > build/runtime/Lib/site-packages/precise_kernel.pth << 'EOF'
-../../../site-packages/pdf2zh/kernel/_precise_packages
 import bitstream_shim
 EOF
     cat > build/runtime/Lib/site-packages/bitstream_shim.py << 'EOF'
@@ -201,15 +211,32 @@ cp -rL "$PY_PREFIX" build/runtime
 echo "==== 4/6 安装依赖 → build/site-packages ===="
 "$UV" pip install --python "$PY_EXE" --target build/site-packages "${UV_PIP_PLATFORM_ARGS[@]}" .
 
-echo "==== 4b/6 捆绑 precise 内核依赖 (pdf2zh_next) ===="
+echo "==== 4b/6 捆装 precise 内核依赖 (pdf2zh_next) ===="
 if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
     echo "错误: precise 内核 submodule 未初始化" >&2
     echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
     exit 1
 fi
+# 先装进独立 staging 目录再复制——直接 --target 到主 site-packages 会把
+# 共享依赖(如 tencentcloud-sdk)升级成新版本, 污染主程序运行环境。
+# bitstring 固定 3.x: 自带 BitStream, babeldoc 兼容, 各进程无需 shim。
+rm -rf dep_build/_precise_stage
+CONSTRAINT_FILE="$PWD/dep_build/_precise_constraints.txt"
+{
+    echo 'bitstring==3.1.11'
+    # cryptography 49+ 不再发布 x86_64/universal2 macOS wheel,
+    # 交叉构建 (CI) 下从源码编译 rust 必失败
+    if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then
+        echo 'cryptography<49'
+    fi
+} > "$CONSTRAINT_FILE"
 "$UV" pip install --python "$PY_EXE" "${UV_PIP_PLATFORM_ARGS[@]}" \
-    --target build/site-packages/pdf2zh/kernel/_precise_packages \
+    --target dep_build/_precise_stage \
+    -c "$CONSTRAINT_FILE" \
     ./pdf2zh/kernel/PDFMathTranslate-next.git
+mkdir -p build/site-packages/pdf2zh/kernel
+rm -rf build/site-packages/pdf2zh/kernel/_precise_packages
+cp -r dep_build/_precise_stage build/site-packages/pdf2zh/kernel/_precise_packages
 
 echo "==== 5/6 写 sitecustomize.py + 启动器 ===="
 cat > build/site-packages/sitecustomize.py << 'EOF'
