@@ -658,7 +658,7 @@ class LongCatTranslator(OpenAITranslator):
     name = "longcat"
     envs = {
         "LONGCAT_API_KEY": None,
-        "LONGCAT_MODEL": "LongCat-Flash-Chat",
+        "LONGCAT_MODEL": "LongCat-2.5",
     }
     CustomPrompt = True
 

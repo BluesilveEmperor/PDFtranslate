@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 _SUBMODULE_DIR = Path(__file__).resolve().parent / "PDFMathTranslate-next.git"
 _VENV_DIR = _SUBMODULE_DIR / ".venv"
 _WORKER_SCRIPT = Path(__file__).resolve().parent / "v2_worker.py"
+# Bundled mode (portable builds): pdf2zh_next and its deps pre-installed here
+# at build time (uv pip install --target). No venv/pip needed at runtime —
+# the embeddable runtime ships without venv/ensurepip.
+_BUNDLED_PACKAGES_DIR = Path(__file__).resolve().parent / "_precise_packages"
 
 
 def _venv_python() -> str:
@@ -32,6 +36,66 @@ def _venv_python() -> str:
     if sys.platform == "win32":
         return str(_VENV_DIR / "Scripts" / "python.exe")
     return str(_VENV_DIR / "bin" / "python")
+
+
+def _runtime_python() -> str:
+    """Return a usable interpreter to launch the worker subprocess.
+
+    In portable builds (PyStand) sys.executable points at pdf2zh.exe, which
+    would re-run the launcher script; use the bundled runtime python instead.
+    """
+    exe = Path(sys.executable)
+    if sys.platform == "win32" and exe.suffix.lower() == ".exe" and (
+        not exe.name.lower().startswith("python")
+    ):
+        candidate = exe.parent / "runtime" / "python.exe"
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+def _worker_cwd() -> Path:
+    """Working directory for the worker subprocess."""
+    if _BUNDLED_PACKAGES_DIR.is_dir() and (_BUNDLED_PACKAGES_DIR / "pdf2zh_next").is_dir():
+        return Path(__file__).resolve().parent
+    return _SUBMODULE_DIR
+
+
+_BITSTREAM_SHIM = (
+    "try:\n"
+    "    from bitstring import BitStream  # noqa: F401\n"
+    "except ImportError:\n"
+    "    from bitstring import BitArray\n"
+    "    import bitstring as _bitstring\n"
+    "    _bitstring.BitStream = BitArray\n"
+)
+
+
+def _worker_command() -> list[str]:
+    """Build the command launching v2_worker.py in the isolated environment.
+
+    - venv mode: run with the venv interpreter directly.
+    - bundled mode: run with the runtime interpreter and inject the bundled
+      packages dir via sys.path (a bootstrap -c script is required because
+      the embeddable runtime's ._pth ignores PYTHONPATH).
+    """
+    if _BUNDLED_PACKAGES_DIR.is_dir() and (_BUNDLED_PACKAGES_DIR / "pdf2zh_next").is_dir():
+        worker = str(_WORKER_SCRIPT)
+        bootstrap = (
+            "import sys\n"
+            "sys.path.insert(0, r'{pkg_dir}')\n"
+            # bitstring>=4 移除了 BitStream，babeldoc 需要；与构建期
+            # sitecustomize.py 兼容层等价（embed 运行时无法写死该文件）
+            "try:\n"
+            "    from bitstring import BitStream  # noqa: F401\n"
+            "except ImportError:\n"
+            "    import bitstring as _bitstring\n"
+            "    _bitstring.BitStream = _bitstring.BitArray\n"
+            "exec(compile(open(r'{worker}', encoding='utf-8').read(), "
+            "r'{worker}', 'exec'))"
+        ).format(pkg_dir=_BUNDLED_PACKAGES_DIR, worker=worker)
+        return [_runtime_python(), "-c", bootstrap]
+    return [_venv_python(), str(_WORKER_SCRIPT)]
 
 
 class _WorkerProgressDispatcher:
@@ -116,38 +180,55 @@ class PreciseKernel:
         if not self.is_available():
             return "unknown"
         try:
+            if self._bundled_mode():
+                py = _runtime_python()
+                code = (
+                    "import sys; sys.path.insert(0, r'{pkg}'); "
+                    "import pdf2zh_next; print(pdf2zh_next.__version__)"
+                ).format(pkg=_BUNDLED_PACKAGES_DIR)
+            else:
+                py = _venv_python()
+                code = "import pdf2zh_next; print(pdf2zh_next.__version__)"
             result = subprocess.run(
-                [
-                    _venv_python(),
-                    "-c",
-                    "import pdf2zh_next; print(pdf2zh_next.__version__)",
-                ],
+                [py, "-c", code],
                 capture_output=True,
                 text=True,
                 timeout=30,
-                cwd=str(_SUBMODULE_DIR),
             )
             return result.stdout.strip() or "unknown"
         except Exception:
             return "unknown"
 
     def is_available(self) -> bool:
-        """Check if submodule exists and venv is initialized."""
+        """Check if bundled packages, submodule+venv, are initialized."""
+        if self._bundled_mode():
+            return True
         return (
             _SUBMODULE_DIR.is_dir()
             and (_SUBMODULE_DIR / "pyproject.toml").exists()
             and Path(_venv_python()).exists()
         )
 
+    def _bundled_mode(self) -> bool:
+        """True when pdf2zh_next was pre-installed into _precise_packages."""
+        return (_BUNDLED_PACKAGES_DIR / "pdf2zh_next").is_dir()
+
     def ensure_venv(self) -> None:
         """Create venv and install pdf2zh_next if not already set up."""
+        if self._bundled_mode():
+            return
+
         if (
             not _SUBMODULE_DIR.is_dir()
             or not (_SUBMODULE_DIR / "pyproject.toml").exists()
         ):
             raise RuntimeError(
-                "PDFMathTranslate-next submodule not found. "
-                "Run: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git"
+                "Precise kernel is not available in this installation. "
+                "Options: (1) switch to the 'fast' translation mode; "
+                "(2) in a dev checkout run: git submodule update --init "
+                "pdf2zh/kernel/PDFMathTranslate-next.git, then set up the "
+                "venv. Expected path: "
+                f"{_SUBMODULE_DIR}"
             )
 
         venv_exists = Path(_venv_python()).exists()
@@ -164,14 +245,42 @@ class PreciseKernel:
             )
 
         logger.info("Installing pdf2zh_next into venv...")
-        subprocess.run(
-            [_venv_python(), "-m", "pip", "install", "-e", str(_SUBMODULE_DIR)],
-            check=True,
-            timeout=300,
-            cwd=str(_SUBMODULE_DIR),
-        )
+        try:
+            # 依赖较重（babeldoc/onnxruntime 等），慢网络下远超 5 分钟；
+            # pip 幂等可重跑，超时后给用户可操作的提示
+            subprocess.run(
+                [_venv_python(), "-m", "pip", "install", "-e", str(_SUBMODULE_DIR)],
+                check=True,
+                timeout=1800,
+                cwd=str(_SUBMODULE_DIR),
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                "Precise kernel setup timed out while installing pdf2zh_next "
+                "(network may be slow). Retry switching to 'precise' mode; "
+                "already-downloaded packages are cached and the retry resumes."
+            ) from e
+
+        # bitstring>=4 移除了 BitStream，babeldoc 依赖它；
+        # 与 build.sh 注入主 site-packages 的兼容层一致
+        self._write_bitstream_shim()
 
         logger.info("Precise kernel venv ready.")
+
+    def _write_bitstream_shim(self) -> None:
+        """Write sitecustomize.py BitStream shim into the venv site-packages."""
+        import sysconfig
+
+        site_dir = Path(
+            sysconfig.get_path("purelib", vars={"base": str(_VENV_DIR)})
+        )
+        try:
+            site_dir.mkdir(parents=True, exist_ok=True)
+            (site_dir / "sitecustomize.py").write_text(
+                _BITSTREAM_SHIM, encoding="utf-8"
+            )
+        except OSError as e:
+            logger.warning("Failed to write BitStream shim: %s", e)
 
     def _package_importable(self) -> bool:
         """Check if pdf2zh_next can be imported in the venv."""
@@ -190,7 +299,10 @@ class PreciseKernel:
     def _build_subprocess_env(self, request: TranslateRequest) -> dict[str, str]:
         """Build environment for the subprocess with PDF2ZH_ prefixed vars."""
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(_SUBMODULE_DIR)
+        if self._bundled_mode():
+            env["PYTHONPATH"] = str(_BUNDLED_PACKAGES_DIR)
+        else:
+            env["PYTHONPATH"] = str(_SUBMODULE_DIR)
         env.update(request_to_env(request))
         return env
 
@@ -206,7 +318,7 @@ class PreciseKernel:
         input_json = json.dumps(cli_args)
         env = self._build_subprocess_env(request)
 
-        cmd = [_venv_python(), str(_WORKER_SCRIPT)]
+        cmd = _worker_command()
         logger.info("Starting precise kernel subprocess: %s", " ".join(cmd))
 
         proc = subprocess.Popen(
@@ -215,7 +327,7 @@ class PreciseKernel:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            cwd=str(_SUBMODULE_DIR),
+            cwd=str(_worker_cwd()),
             env=env,
         )
 
@@ -274,13 +386,14 @@ class PreciseKernel:
         input_json = json.dumps(cli_args)
         env = self._build_subprocess_env(request)
 
+        cmd = _worker_command()
+        cmd_async = list(cmd)
         proc = await asyncio.create_subprocess_exec(
-            _venv_python(),
-            str(_WORKER_SCRIPT),
+            *cmd_async,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=str(_SUBMODULE_DIR),
+            cwd=str(_worker_cwd()),
             env=env,
         )
         assert proc.stdin is not None

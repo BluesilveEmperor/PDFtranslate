@@ -490,6 +490,7 @@ def translate_file(
     skip_subset_fonts,
     ignore_cache,
     vfont,
+    translate_table,
     mode_choice,
     recaptcha_response,
     state,
@@ -631,6 +632,13 @@ def translate_file(
 
         KernelRegistry.switch(mode_choice)
         kernel = KernelRegistry.get()
+        # 表格内容翻译：勾选时将 table 从保护类列表中移除
+        _default_reserved = "abandon,figure,table,isolate_formula,formula_caption"
+        reserved_classes = ",".join(
+            c
+            for c in (s.strip() for s in _default_reserved.split(","))
+            if c and not (translate_table and c == "table")
+        )
         request = TranslateRequest(
             files=[str(file_raw)],
             output=str(staging),
@@ -644,12 +652,18 @@ def translate_file(
             skip_subset_fonts=skip_subset_fonts,
             ignore_cache=ignore_cache,
             vfont=vfont,
+            reserved_classes=reserved_classes,
         )
-        kernel.translate(
+        kernel_results = kernel.translate(
             request,
             callback=progress_bar,
             cancellation_event=cancellation_event_map[session_id],
         )
+        # 内核返回实际产物路径：v2(precise) 命名与 v1 不同
+        # （{name}.zh.mono.pdf vs {name}-mono.pdf），以返回值为准
+        if kernel_results and kernel_results[0].mono_pdf:
+            file_mono = Path(kernel_results[0].mono_pdf)
+            file_dual = Path(kernel_results[0].dual_pdf)
     except CancelledError:
         del cancellation_event_map[session_id]
         clear_staging()
@@ -1057,9 +1071,18 @@ with gr.Blocks(
                         prompt = gr.Textbox(
                             label="自定义 Prompt（LLM）", interactive=True, visible=False
                         )
+                        # 表格区域默认保护不翻译（版式优先）；勾选后 table
+                        # 类从 reserved_classes 中移除，表格文字参与翻译
+                        translate_table = gr.Checkbox(
+                            label="翻译表格内容（表格文字参与翻译）",
+                            interactive=True,
+                            value=False,
+                        )
+                        from pdf2zh.kernel import KernelRegistry as _KernelRegistry
+
                         mode_choice = gr.Dropdown(
                             label="翻译模式",
-                            choices=["fast", "precise"],
+                            choices=_KernelRegistry.available() or ["fast"],
                             value="fast",
                             interactive=True,
                         )
@@ -1318,6 +1341,7 @@ with gr.Blocks(
                     skip_subset_fonts,
                     ignore_cache,
                     vfont,
+                    translate_table,
                     mode_choice,
                     recaptcha_response,
                     state,

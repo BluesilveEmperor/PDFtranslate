@@ -31,24 +31,49 @@ build_offline_assets () {
 if [ "$PLATFORM" = "windows" ]; then
     # ================ Windows: Python embed + PyStand（git-bash 环境） ================
     PY_VER="3.12.9"
-    CONDA_SP="/c/Users/HW/miniconda3/envs/pdf2zh_build/Lib/site-packages"
-    PY_EXE="/c/Users/HW/miniconda3/envs/pdf2zh_build/python.exe"
 
     echo "==== 1/7 创建目录 ===="
-    rm -rf build dep_build
+    # 注意: 只清理 build; dep_build 存放已下载的 python.zip/PyStand.zip 等依赖, 保留复用
+    rm -rf build
     mkdir -p build/runtime dep_build
 
     echo "==== 2/7 下载 Python $PY_VER embed ===="
-    curl -L -o dep_build/python.zip "https://www.python.org/ftp/python/$PY_VER/python-$PY_VER-embed-amd64.zip"
+    if [ ! -f dep_build/python.zip ]; then
+        curl -L -o dep_build/python.zip "https://www.python.org/ftp/python/$PY_VER/python-$PY_VER-embed-amd64.zip"
+    else
+        echo "复用已下载的 dep_build/python.zip"
+    fi
     unzip -q -o dep_build/python.zip -d build/runtime
 
-    echo "==== 3/7 下载 PyStand v1.1.4 ===="
-    curl -L -o dep_build/PyStand.zip "https://github.com/skywind3000/PyStand/releases/download/1.1.4/PyStand-v1.1.4-exe.zip"
-    unzip -q -o dep_build/PyStand.zip -d dep_build/PyStand
+    echo "==== 3/7 准备 PyStand v1.1.4 ===="
+    if [ ! -f dep_build/PyStand/PyStand-x64-CLI/PyStand.exe ]; then
+        curl -L -o dep_build/PyStand.zip "https://github.com/skywind3000/PyStand/releases/download/1.1.4/PyStand-v1.1.4-exe.zip"
+        unzip -q -o dep_build/PyStand.zip -d dep_build/PyStand
+    else
+        echo "复用本地 dep_build/PyStand"
+    fi
     cp dep_build/PyStand/PyStand-x64-CLI/PyStand.exe build/pdf2zh.exe
 
-    echo "==== 4/7 复制 conda site-packages ===="
-    cp -r "$CONDA_SP" build/site-packages
+    echo "==== 4/7 uv 安装 Python 3.12 与依赖 ===="
+    # 原方案复制 conda env (pdf2zh_build) 的 site-packages, 该环境已不存在;
+    # 改用 uv 安装托管 CPython 3.12, 依赖装到 build/site-packages (win_amd64
+    # wheel, 兼容 3.12.9 embed 运行时), 与 Linux/macOS 分支的 uv 方案一致
+    uv python install 3.12
+    PY_EXE="$(cygpath -u "$(uv python find 3.12)")"
+    uv pip install --python "$PY_EXE" --target build/site-packages .
+
+    echo "==== 4b/7 捆绑 precise 内核依赖 (pdf2zh_next) ===="
+    # precise 内核在便携包内以"捆绑模式"运行: 依赖预装到
+    # build/site-packages/pdf2zh/kernel/_precise_packages, 运行时由
+    # precise.py 注入 sys.path, 无需 venv/pip (embed 运行时没有它们)
+    if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
+        echo "错误: precise 内核 submodule 未初始化" >&2
+        echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
+        exit 1
+    fi
+    uv pip install --python "$PY_EXE" \
+        --target build/site-packages/pdf2zh/kernel/_precise_packages \
+        ./pdf2zh/kernel/PDFMathTranslate-next.git
 
     echo "==== 5/7 写 sitecustomize.py (BitStream 兼容层) ===="
     cat > build/site-packages/sitecustomize.py << 'EOF'
@@ -60,14 +85,42 @@ except ImportError:
     bitstring.BitStream = BitArray
 EOF
 
+    echo "==== 5b/7 运行时注入 BitStream shim (babeldoc 多进程子进程也需要) ===="
+    # embed 运行时 python312._pth 默认不执行 site; babeldoc spawn 的子进程
+    # 走裸 python.exe 初始化, 不经过 PyStand/worker bootstrap, 缺 BitStream
+    # shim 会 ImportError 并导致 babeldoc 无限重试。
+    # 启用 import site 后, runtime/Lib/site-packages 成为标准 site 目录:
+    #   - precise_kernel.pth 把捆绑的 _precise_packages 追加进 sys.path
+    #   - 并执行 import bitstream_shim 给当前进程打上 BitStream 兼容层
+    # 对所有 python.exe 进程生效 (PyStand 父进程 / worker / spawn 子进程)。
+    sed -i 's/^#import site/import site/' build/runtime/python312._pth
+    mkdir -p build/runtime/Lib/site-packages
+    cat > build/runtime/Lib/site-packages/precise_kernel.pth << 'EOF'
+../../../site-packages/pdf2zh/kernel/_precise_packages
+import bitstream_shim
+EOF
+    cat > build/runtime/Lib/site-packages/bitstream_shim.py << 'EOF'
+try:
+    from bitstring import BitStream
+except ImportError:
+    import bitstring
+    bitstring.BitStream = bitstring.BitArray
+EOF
+    cat > build/runtime/sitecustomize.py << 'EOF'
+# 防止用户机器上的 user site-packages 混入便携包 (依赖版本不可控)
+import sys as _sys
+for _p in [p for p in _sys.path if "Roaming\\Python" in p or "Roaming/Python" in p]:
+    _sys.path.remove(_p)
+EOF
+
     echo "==== 6/7 复制 _pystand_static.int ===="
     cp script/_pystand_static.int build/_pystand_static.int
 
     echo "==== 7/7 生成离线资源 ===="
     # 注: babeldoc --generate-offline-assets 需要联网校验(本机直连 HuggingFace 不通),
     # 改用本地缓存打包: 从缓存目录校验并打 zip, 缺失时可加 ASSETS_ALLOW_DOWNLOAD=1。
-    # 不用 conda run 转发输出(它会按 GBK 重编码导致中文乱码), 直接调 env 的 python.exe
-    build_offline_assets "$PY_EXE" build
+    # 依赖在 build/site-packages 里, 需显式加 PYTHONPATH
+    PYTHONPATH="$PWD/build/site-packages" build_offline_assets "$PY_EXE" build
 
     echo ""
     echo "==== 构建完成！===="
@@ -140,6 +193,16 @@ cp -rL "$PY_PREFIX" build/runtime
 
 echo "==== 4/6 安装依赖 → build/site-packages ===="
 "$UV" pip install --python "$PY_EXE" --target build/site-packages "${UV_PIP_PLATFORM_ARGS[@]}" .
+
+echo "==== 4b/6 捆绑 precise 内核依赖 (pdf2zh_next) ===="
+if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
+    echo "错误: precise 内核 submodule 未初始化" >&2
+    echo "请先执行: git submodule update --init pdf2zh/kernel/PDFMathTranslate-next.git" >&2
+    exit 1
+fi
+"$UV" pip install --python "$PY_EXE" "${UV_PIP_PLATFORM_ARGS[@]}" \
+    --target build/site-packages/pdf2zh/kernel/_precise_packages \
+    ./pdf2zh/kernel/PDFMathTranslate-next.git
 
 echo "==== 5/6 写 sitecustomize.py + 启动器 ===="
 cat > build/site-packages/sitecustomize.py << 'EOF'

@@ -89,7 +89,7 @@ pdf2zh paper.pdf --ultrafast
 7. **开始翻译**：点击翻译按钮，等待进度完成。
 8. **获取结果**：在输出区下载 `Traned_single_*.pdf`（纯译文）与 `Traned_double_*.pdf`（双语对照）。
 
-「更多实验选项」折叠区可调整：线程数、跳过字体子集化、忽略缓存（强制重翻）、自定义公式字体正则（vfont）、自定义 Prompt（LLM 服务）与翻译模式（fast / precise）。
+「更多实验选项」折叠区可调整：线程数、跳过字体子集化、忽略缓存（强制重翻）、自定义公式字体正则（vfont）、自定义 Prompt（LLM 服务）、表格内容翻译（默认表格区域按版式保护不翻译，勾选后表格文字参与翻译）与翻译模式（fast / precise；precise 需要子模块或便携包内捆绑的 `_precise_packages`，不可用时仅显示 fast）。
 
 ### 命令行模式
 
@@ -175,7 +175,7 @@ pdf2zh --help
 | DeepL | `deepl` | `DEEPL_AUTH_KEY` | — |
 | DeepLX | `deeplx` | `DEEPLX_ENDPOINT`、`DEEPLX_ACCESS_TOKEN` | — |
 | 智谱 GLM | `zhipu` | `ZHIPU_API_KEY` | `glm-4-flash` |
-| LongCat | `longcat` | `LONGCAT_API_KEY` | `LongCat-Flash-Chat` |
+| LongCat | `longcat` | `LONGCAT_API_KEY` | `LongCat-2.5` |
 | 硅基流动 | `silicon` | `SILICON_API_KEY` | `Qwen/Qwen2.5-7B-Instruct` |
 | Grok | `grok` | `GROK_API_KEY` | `grok-2-1212` |
 | Groq | `groq` | `GROQ_API_KEY` | `llama-3-3-70b-versatile` |

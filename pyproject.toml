@@ -100,6 +100,15 @@ Homepage = "https://github.com/Byaidu/PDFMathTranslate"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# 子模块源码与其 venv 不进 wheel/sdist：
+# - 便携包通过 build 脚本把 pdf2zh_next 预装到 site-packages/pdf2zh/kernel/_precise_packages
+# - ensure_venv 会在子模块目录里创建 .venv（体积巨大），打包前必须排除
+[tool.hatch.build.targets.wheel]
+exclude = ["pdf2zh/kernel/PDFMathTranslate-next.git"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["pdf2zh/kernel/PDFMathTranslate-next.git"]
+
 [project.scripts]
 pdf2zh = "pdf2zh.pdf2zh:main"
 pdf2zh-setup-precise = "pdf2zh.kernel.precise:setup_precise_cli"

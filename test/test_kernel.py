@@ -182,10 +182,20 @@ class TestV2Bridge(unittest.TestCase):
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
         from pdf2zh.kernel.protocol import TranslateRequest
 
+        # v1 页码 0-based → v2/babeldoc 1-based
         req = TranslateRequest(files=["test.pdf"], pages=[0, 1, 4])
         args = request_to_cli_args(req)
         self.assertIn("--pages", args)
-        self.assertIn("0,1,4", args)
+        self.assertIn("1,2,5", args)
+
+    def cli_args_pages_str_passthrough(self):
+        """CLI 字符串页码（用户手填，1-based）原样透传。"""
+        from pdf2zh.kernel.v2_bridge import request_to_cli_args
+        from pdf2zh.kernel.protocol import TranslateRequest
+
+        req = TranslateRequest(files=["test.pdf"], pages="1-5")
+        args = request_to_cli_args(req)
+        self.assertIn("1-5", args)
 
     def test_cli_args_compatible(self):
         from pdf2zh.kernel.v2_bridge import request_to_cli_args
@@ -704,6 +714,101 @@ class TestCLIKernelPipeline(unittest.TestCase):
 
         call_args = mock_kernel.translate.call_args[0][0]
         self.assertEqual(call_args.service, "openai:gpt-4")
+
+
+class TestPreciseBundledMode(unittest.TestCase):
+    """Bundled mode (portable builds): real subprocess end-to-end with a stub env.
+
+    Simulates the packaged layout: pdf2zh_next pre-installed under
+    _precise_packages, no submodule/venv. The worker must be launched with
+    sys.path injection (embed runtime ignores PYTHONPATH) and must produce
+    valid JSON on stdout.
+    """
+
+    def test_bundled_mode_worker_end_to_end(self):
+        import importlib
+        import json
+        import shutil
+        import tempfile
+        import textwrap
+
+        import pdf2zh.kernel.precise as precise_mod
+
+        tmp = Path(tempfile.mkdtemp(prefix="precise_bundled_"))
+        try:
+            pkg_dir = tmp / "_precise_packages"
+            (pkg_dir / "pdf2zh_next").mkdir(parents=True)
+            (pkg_dir / "pdf2zh_next" / "__init__.py").write_text(
+                'STUB = "bundled-ok"\n', encoding="utf-8"
+            )
+            worker = tmp / "stub_worker.py"
+            worker.write_text(
+                textwrap.dedent(
+                    """
+                    import json, sys
+                    args = json.loads(sys.stdin.read())
+                    import pdf2zh_next
+                    print(
+                        json.dumps(
+                            {
+                                "results": [
+                                    {
+                                        "mono_pdf": args[0],
+                                        "dual_pdf": None,
+                                        "stub": pdf2zh_next.STUB,
+                                    }
+                                ],
+                                "time_cost": 0.0,
+                            }
+                        ),
+                        flush=True,
+                    )
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                precise_mod, "_BUNDLED_PACKAGES_DIR", pkg_dir
+            ), patch.object(precise_mod, "_WORKER_SCRIPT", worker):
+                # Reload so module-level helpers see the patched constants
+                k = precise_mod.PreciseKernel()
+                self.assertTrue(k._bundled_mode())
+                self.assertTrue(k.is_available())
+                cmd = precise_mod._worker_command()
+                self.assertEqual(cmd[1], "-c")  # bootstrap via -c script
+
+                from pdf2zh.kernel.protocol import TranslateRequest
+
+                results = k.translate(
+                    TranslateRequest(files=["stub_input.pdf"], service="google")
+                )
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].mono_pdf, Path("stub_input.pdf"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ensure_venv_raises_helpful_error_without_submodule(self):
+        import shutil
+        import tempfile
+
+        import pdf2zh.kernel.precise as precise_mod
+
+        tmp = Path(tempfile.mkdtemp(prefix="precise_nosub_"))
+        try:
+            with patch.object(
+                precise_mod, "_SUBMODULE_DIR", tmp / "missing.git"
+            ), patch.object(precise_mod, "_BUNDLED_PACKAGES_DIR", tmp / "no_pkgs"):
+                k = precise_mod.PreciseKernel()
+                self.assertFalse(k.is_available())
+                with self.assertRaises(RuntimeError) as ctx:
+                    k.ensure_venv()
+                msg = str(ctx.exception)
+                self.assertIn("Precise kernel is not available", msg)
+                self.assertIn("fast", msg)  # actionable guidance present
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

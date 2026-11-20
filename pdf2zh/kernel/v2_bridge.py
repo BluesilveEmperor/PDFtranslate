@@ -33,7 +33,7 @@ SERVICE_NAME_MAP: dict[str, str] = {
     "groq": "groq",
     "deepseek": "deepseek",
     "doubao": "doubao",
-    "openai-compatible": "openai_compatible",
+    "openai-compatible": "openaicompatible",
     "aliyun-dashscope": "aliyun_dashscope",
     "modelscope": "modelscope",
 }
@@ -83,6 +83,17 @@ _ENGINE_ENV_NAMES: set[str] = {
 }
 
 
+# v1 服务无同名 v2 引擎时，走 v2 的 OpenAICompatible 引擎的映射表。
+# v1 服务名 → (v2 base URL, v1 API key 环境名, v1 默认模型)
+OPENAI_COMPAT_SERVICES: dict[str, tuple[str, str, str]] = {
+    "longcat": (
+        "https://api.longcat.chat/openai/v1",
+        "LONGCAT_API_KEY",
+        "LongCat-2.5",
+    ),
+}
+
+
 def _split_service_model(service_raw: str) -> tuple[str, str]:
     """Split 'openai:gpt-4o' into ('openai', 'gpt-4o')."""
     if ":" in service_raw:
@@ -92,13 +103,18 @@ def _split_service_model(service_raw: str) -> tuple[str, str]:
 
 
 def _pages_to_v2(pages: Any) -> str:
-    """Convert v1 pages (list[int] | str | None) to v2 format string."""
+    """Convert v1 pages to v2 format string.
+
+    v1 (GUI/TranslateRequest) 页码为 0-based list[int]；v1 CLI 字符串
+    （用户手填）已按文档使用 1-based，直接透传。v2/babeldoc 一律
+    1-based，因此 list[int] 需整体 +1。
+    """
     if pages is None:
         return ""
     if isinstance(pages, str):
         return pages
     if isinstance(pages, list):
-        return ",".join(str(p) for p in pages)
+        return ",".join(str(int(p) + 1) for p in pages)
     return str(pages)
 
 
@@ -122,8 +138,19 @@ def request_to_cli_args(request: Any) -> list[str]:
 
     # Engine flag: --google, --openai, etc.
     engine_type = SERVICE_NAME_MAP.get(service.lower())
+    if not engine_type and service.lower() in OPENAI_COMPAT_SERVICES:
+        # v1 独有服务（如 longcat）→ v2 的 OpenAICompatible 引擎。
+        # 注意 v2 布尔引擎旗标是 --openaicompatible（无连字符），
+        # 其细节参数才是 --openai-compatible-*；环境变量在
+        # request_to_env 中注入
+        engine_type = "openaicompatible"
     if engine_type:
         args.append(f"--{engine_type.replace('_', '-')}")
+    else:
+        raise ValueError(
+            f"Service '{service}' is not supported by the precise kernel "
+            "(pdf2zh_next). Switch to 'fast' mode or pick a supported service."
+        )
 
     if pages_v2:
         args.extend(["--pages", pages_v2])
@@ -183,8 +210,29 @@ def request_to_env(request: Any) -> dict[str, str]:
     # Handle service:model → PDF2ZH_{ENGINE}_MODEL
     service_raw = data.get("service", "google")
     service, model = _split_service_model(service_raw)
-    if model:
-        engine_type = SERVICE_NAME_MAP.get(service.lower())
+    engine_type = SERVICE_NAME_MAP.get(service.lower())
+
+    # v1 独有服务 → OpenAICompatible：注入 base URL / key / model。
+    # v1 envs 优先，os.environ 兜底，最后用内置默认。
+    compat = OPENAI_COMPAT_SERVICES.get(service.lower())
+    if compat:
+        compat_base, compat_key_name, compat_default_model = compat
+        api_key = envs.get(compat_key_name) or os.environ.get(compat_key_name)
+        v1_model_name = compat_key_name.replace("_API_KEY", "_MODEL")
+        model_name = (
+            model
+            or envs.get(v1_model_name)
+            or os.environ.get(v1_model_name)
+            or compat_default_model
+        )
+        if not api_key:
+            raise ValueError(
+                f"Service '{service}' requires {compat_key_name} to be set."
+            )
+        env["PDF2ZH_OPENAI_COMPATIBLE_BASE_URL"] = compat_base
+        env["PDF2ZH_OPENAI_COMPATIBLE_API_KEY"] = api_key
+        env["PDF2ZH_OPENAI_COMPATIBLE_MODEL"] = model_name
+    elif model:
         if engine_type:
             model_env = f"PDF2ZH_{engine_type.upper()}_MODEL"
             env[model_env] = model

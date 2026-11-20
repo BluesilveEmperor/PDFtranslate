@@ -89,7 +89,7 @@ When translation finishes, `Traned_single_paper.pdf` (translation only) and `Tra
 7. **Translate**: click the translate button and wait for completion.
 8. **Get results**: download `Traned_single_*.pdf` (translation only) and `Traned_double_*.pdf` (bilingual) from the output area.
 
-The *More experimental options* accordion lets you adjust: thread count, skip font subsetting, ignore cache (force retranslation), custom formula-font regex (vfont), custom prompt (LLM services), and translation mode (fast / precise).
+The *More experimental options* accordion lets you adjust: thread count, skip font subsetting, ignore cache (force retranslation), custom formula-font regex (vfont), custom prompt (LLM services), translate table content (tables are layout-protected by default; enabling this translates text inside tables), and translation mode (fast / precise; precise requires the submodule or the bundled `_precise_packages` in portable builds — unavailable kernels are hidden from the dropdown).
 
 ### CLI Mode
 
@@ -175,7 +175,7 @@ Major services and their credentials:
 | DeepL | `deepl` | `DEEPL_AUTH_KEY` | — |
 | DeepLX | `deeplx` | `DEEPLX_ENDPOINT`, `DEEPLX_ACCESS_TOKEN` | — |
 | Zhipu GLM | `zhipu` | `ZHIPU_API_KEY` | `glm-4-flash` |
-| LongCat | `longcat` | `LONGCAT_API_KEY` | `LongCat-Flash-Chat` |
+| LongCat | `longcat` | `LONGCAT_API_KEY` | `LongCat-2.5` |
 | SiliconFlow | `silicon` | `SILICON_API_KEY` | `Qwen/Qwen2.5-7B-Instruct` |
 | Grok | `grok` | `GROK_API_KEY` | `grok-2-1212` |
 | Groq | `groq` | `GROQ_API_KEY` | `llama-3-3-70b-versatile` |
