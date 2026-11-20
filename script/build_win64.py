@@ -109,52 +109,10 @@ def uv_python() -> str:
 
 
 def write_runtime_shim(runtime_dir: Path) -> None:
-    """给 embed 运行时注入 BitStream shim（babeldoc spawn 子进程必需）。
-
-    pth 不追加 _precise_packages 路径——PyStand 主进程混入捆绑目录会污染
-    主程序依赖解析；spawn 子进程从 worker 父进程继承 sys.path（bootstrap
-    已注入捆绑目录），天然可见 bitstring。bitstring 3.x 时 shim 为 no-op。
-    """
-    pth = runtime_dir / "python312._pth"
-    text = pth.read_text(encoding="utf-8")
-    if "#import site" in text:
-        pth.write_text(text.replace("#import site", "import site"), encoding="utf-8")
-
-    site_dir = runtime_dir / "Lib" / "site-packages"
-    site_dir.mkdir(parents=True, exist_ok=True)
-    (site_dir / "precise_kernel.pth").write_text(
-        "../../../site-packages/pdf2zh/kernel/_precise_packages\nimport bitstream_shim\n",
-        encoding="utf-8",
-    )
-    (site_dir / "bitstream_shim.py").write_text(
-        "# 把捆绑目录垫底: PyStand 主进程依赖解析仍先命中主 site-packages\n"
-        "# (避免 tencentcloud 等被捆绑副本劫持), spawn 子进程又能看见 bitstring。\n"
-        "import os as _os\n"
-        "import sys as _sys\n"
-        "\n"
-        "_b = _os.path.normpath(_os.path.join(\n"
-        "    _os.path.dirname(__file__), '..', '..', '..',\n"
-        "    'site-packages', 'pdf2zh', 'kernel', '_precise_packages',\n"
-        "))\n"
-        "if _os.path.isdir(_b):\n"
-        "    if _b in _sys.path:\n"
-        "        _sys.path.remove(_b)\n"
-        "    _sys.path.append(_b)\n"
-        "\n"
-        "try:\n"
-        "    from bitstring import BitStream\n"
-        "except ImportError:\n"
-        "    import bitstring\n"
-        "    bitstring.BitStream = bitstring.BitArray\n",
-        encoding="utf-8",
-    )
-    (runtime_dir / "sitecustomize.py").write_text(
-        "# 防止用户机器上的 user site-packages 混入便携包 (依赖版本不可控)\n"
-        "import sys as _sys\n"
-        'for _p in [p for p in _sys.path if "Roaming\\\\Python" in p or "Roaming/Python" in p]:\n'
-        "    _sys.path.remove(_p)\n",
-        encoding="utf-8",
-    )
+    """已废弃: bitstring 固定 4.3.0 后原生含 BitStream, spawn 子进程从
+    worker 父进程继承 sys.path (含捆绑目录), 无需 site/pth 机制。保留
+    空实现仅为兼容调用点。"""
+    return None
 
 
 def main() -> None:
@@ -211,9 +169,12 @@ def main() -> None:
             )
         # 先装进独立 staging 目录再复制: 直接 --target 到主 site-packages
         # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序。
+        # bitstring 固定 4.3.0: 原生含 BitStream, babeldoc 兼容, 免 shim。
         stage = DEP_DIR / "_precise_stage"
         if stage.exists():
             shutil.rmtree(stage)
+        constraints = DEP_DIR / "_precise_constraints.txt"
+        constraints.write_text("bitstring==4.3.0\n", encoding="utf-8")
         run([
             "uv", "pip", "install", "--python", py_exe,
             "--target", stage,

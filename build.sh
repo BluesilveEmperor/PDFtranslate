@@ -83,6 +83,7 @@ if [ "$PLATFORM" = "windows" ]; then
         rm -rf dep_build/_precise_stage
         uv pip install --python "$PY_EXE" \
             --target dep_build/_precise_stage \
+            --constraints <(echo 'bitstring==4.3.0') \
             ./pdf2zh/kernel/PDFMathTranslate-next.git
         mkdir -p build/site-packages/pdf2zh/kernel
         rm -rf build/site-packages/pdf2zh/kernel/_precise_packages
@@ -101,48 +102,9 @@ except ImportError:
     bitstring.BitStream = BitArray
 EOF
 
-    echo "==== 5b/7 运行时注入 BitStream shim (babeldoc 多进程子进程也需要) ===="
-    # embed 运行时 python312._pth 默认不执行 site; babeldoc spawn 的子进程
-    # 走裸 python.exe 初始化, 不经过 PyStand/worker bootstrap, 缺 BitStream
-    # shim 会 ImportError 并导致 babeldoc 无限重试。
-    # 启用 import site 后, runtime/Lib/site-packages 成为标准 site 目录,
-    # bitstream_shim.py 对所有 python.exe 进程生效。
-    # 注意: pth 不追加 _precise_packages 路径——PyStand 主进程若混入捆绑
-    # 目录会污染主程序依赖解析; spawn 子进程从 worker 父进程继承 sys.path
-    # (precise.py bootstrap 已注入), 天然可见捆绑目录。
-    sed -i 's/^#import site/import site/' build/runtime/python312._pth
-    mkdir -p build/runtime/Lib/site-packages
-    cat > build/runtime/Lib/site-packages/precise_kernel.pth << 'EOF'
-../../../site-packages/pdf2zh/kernel/_precise_packages
-import bitstream_shim
-EOF
-    cat > build/runtime/Lib/site-packages/bitstream_shim.py << 'EOF'
-# 把捆绑目录垫底: PyStand 主进程依赖解析仍先命中主 site-packages
-# (避免 tencentcloud 等被捆绑副本劫持), spawn 子进程又能看见 bitstring。
-import os as _os
-import sys as _sys
-
-_b = _os.path.normpath(_os.path.join(
-    _os.path.dirname(__file__), "..", "..", "..",
-    "site-packages", "pdf2zh", "kernel", "_precise_packages",
-))
-if _os.path.isdir(_b):
-    if _b in _sys.path:
-        _sys.path.remove(_b)
-    _sys.path.append(_b)
-
-try:
-    from bitstring import BitStream
-except ImportError:
-    import bitstring
-    bitstring.BitStream = bitstring.BitArray
-EOF
-    cat > build/runtime/sitecustomize.py << 'EOF'
-# 防止用户机器上的 user site-packages 混入便携包 (依赖版本不可控)
-import sys as _sys
-for _p in [p for p in _sys.path if "Roaming\\Python" in p or "Roaming/Python" in p]:
-    _sys.path.remove(_p)
-EOF
+    echo "==== 5b/7 skipped: BitStream shim 不再需要 ===="
+    # 捆装已把 bitstring 固定为 4.3.0 (原生含 BitStream, babeldoc 兼容),
+    # spawn 子进程从 worker 父进程继承 sys.path, 无需 site/pth 机制。
 
     echo "==== 6/7 复制 _pystand_static.int ===="
     cp script/_pystand_static.int build/_pystand_static.int
@@ -236,6 +198,8 @@ fi
 rm -rf dep_build/_precise_stage
 CONSTRAINT_FILE="$PWD/dep_build/_precise_constraints.txt"
 {
+    # bitstring 4.3.0 原生含 BitStream (babeldoc>=4.3.0 满足), 免 shim
+    echo 'bitstring==4.3.0'
     # cryptography 49+ 不再发布 x86_64/universal2 macOS wheel,
     # 交叉构建 (CI) 下从源码编译 rust 必失败
     if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then
