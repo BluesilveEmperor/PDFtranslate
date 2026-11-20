@@ -200,10 +200,13 @@ CONSTRAINT_FILE="$PWD/dep_build/_precise_constraints.txt"
 {
     # bitstring 4.3.0 原生含 BitStream (babeldoc>=4.3.0 满足), 免 shim
     echo 'bitstring==4.3.0'
-    # cryptography 49+ 不再发布 x86_64/universal2 macOS wheel,
-    # 交叉构建 (CI) 下从源码编译 rust 必失败
+    # x86_64 macOS 交叉构建: 以下依赖的新版本无 x86_64 wheel,
+    # 源码编译必失败 (约束与主项目 pyproject 的 darwin-x86_64 兼容层一致)
     if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then
         echo 'cryptography<49'
+        echo 'opencv-python-headless<=4.11.0.86'
+        echo 'opencv-python<=4.11.0.86'
+        echo 'pikepdf<=9.11.0'
     fi
 } > "$CONSTRAINT_FILE"
 "$UV" pip install --python "$PY_EXE" "${UV_PIP_PLATFORM_ARGS[@]}" \
