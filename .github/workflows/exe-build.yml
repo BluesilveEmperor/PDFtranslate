@@ -182,6 +182,13 @@ jobs:
 
       - name: Test show version
         run: |
+          Write-Host "==== 诊断: site-packages/pdf2zh 结构 ===="
+          Test-Path "./build/site-packages/pdf2zh/pdf2zh.py"
+          Test-Path "./build/site-packages/pdf2zh/__init__.py"
+          Get-ChildItem "./build/site-packages/pdf2zh" -ErrorAction SilentlyContinue | Select-Object -First 10 Name | Out-String
+          Write-Host "==== 诊断: runtime python sys.path ===="
+          ./build/runtime/python.exe -c "import sys, json; print(json.dumps(sys.path))"
+          ./build/runtime/python.exe -c "import importlib.util; print('pdf2zh spec:', importlib.util.find_spec('pdf2zh'))"
           ./build/pdf2zh.exe --version
 
       - name: Test - GUI smoke (offline assets restore + gradio up)
