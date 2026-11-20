@@ -88,8 +88,8 @@ jobs:
           Write-Host "==== 注入运行时 BitStream shim (babeldoc spawn 子进程必需) ===="
           (Get-Content "./build/runtime/python312._pth") -replace '#import site','import site' | Set-Content "./build/runtime/python312._pth" -Encoding ascii
           New-Item -Path "./build/runtime/Lib/site-packages" -ItemType Directory -Force | Out-Null
-          Set-Content -Path "./build/runtime/Lib/site-packages/precise_kernel.pth" -Value "import bitstream_shim" -Encoding ascii
-          Set-Content -Path "./build/runtime/Lib/site-packages/bitstream_shim.py" -Value "try:`n    from bitstring import BitStream`nexcept ImportError:`n    import bitstring`n    bitstring.BitStream = bitstring.BitArray" -Encoding utf8
+          Set-Content -Path "./build/runtime/Lib/site-packages/precise_kernel.pth" -Value "../../../site-packages/pdf2zh/kernel/_precise_packages`nimport bitstream_shim" -Encoding ascii
+          Set-Content -Path "./build/runtime/Lib/site-packages/bitstream_shim.py" -Value "import os as _os`nimport sys as _sys`n_b = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', 'site-packages', 'pdf2zh', 'kernel', '_precise_packages'))`nif _os.path.isdir(_b):`n    if _b in _sys.path:`n        _sys.path.remove(_b)`n    _sys.path.append(_b)`ntry:`n    from bitstring import BitStream`nexcept ImportError:`n    import bitstring`n    bitstring.BitStream = bitstring.BitArray" -Encoding utf8
           Set-Content -Path "./build/runtime/sitecustomize.py" -Value "import sys as _sys`nfor _p in [p for p in _sys.path if ('Roaming\\Python' in p) or ('Roaming/Python' in p)]:`n    _sys.path.remove(_p)" -Encoding utf8
 
           Write-Host "==== 通过 GitHub API 下载并解压 PyStand（规避 releases/download 路径 504） ===="
@@ -137,8 +137,7 @@ jobs:
           # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序。bitstring 3.x
           # 自带 BitStream, 免 shim。
           If (Test-Path "./dep_build/_precise_stage") { Remove-Item "./dep_build/_precise_stage" -Recurse -Force }
-          Set-Content -Path "./dep_build/_precise_constraints.txt" -Value "bitstring==3.1.11" -Encoding ascii
-          uv pip install --target "./dep_build/_precise_stage" -c "./dep_build/_precise_constraints.txt" "./pdf2zh/kernel/PDFMathTranslate-next.git"
+          uv pip install --target "./dep_build/_precise_stage" "./pdf2zh/kernel/PDFMathTranslate-next.git"
           New-Item -Path "./build/site-packages/pdf2zh/kernel" -ItemType Directory -Force | Out-Null
           If (Test-Path "./build/site-packages/pdf2zh/kernel/_precise_packages") { Remove-Item "./build/site-packages/pdf2zh/kernel/_precise_packages" -Recurse -Force }
           Copy-Item "./dep_build/_precise_stage" "./build/site-packages/pdf2zh/kernel/_precise_packages" -Recurse

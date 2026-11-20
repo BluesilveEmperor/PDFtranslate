@@ -83,7 +83,6 @@ if [ "$PLATFORM" = "windows" ]; then
         rm -rf dep_build/_precise_stage
         uv pip install --python "$PY_EXE" \
             --target dep_build/_precise_stage \
-            --constraints <(echo 'bitstring==3.1.11') \
             ./pdf2zh/kernel/PDFMathTranslate-next.git
         mkdir -p build/site-packages/pdf2zh/kernel
         rm -rf build/site-packages/pdf2zh/kernel/_precise_packages
@@ -114,9 +113,24 @@ EOF
     sed -i 's/^#import site/import site/' build/runtime/python312._pth
     mkdir -p build/runtime/Lib/site-packages
     cat > build/runtime/Lib/site-packages/precise_kernel.pth << 'EOF'
+../../../site-packages/pdf2zh/kernel/_precise_packages
 import bitstream_shim
 EOF
     cat > build/runtime/Lib/site-packages/bitstream_shim.py << 'EOF'
+# 把捆绑目录垫底: PyStand 主进程依赖解析仍先命中主 site-packages
+# (避免 tencentcloud 等被捆绑副本劫持), spawn 子进程又能看见 bitstring。
+import os as _os
+import sys as _sys
+
+_b = _os.path.normpath(_os.path.join(
+    _os.path.dirname(__file__), "..", "..", "..",
+    "site-packages", "pdf2zh", "kernel", "_precise_packages",
+))
+if _os.path.isdir(_b):
+    if _b in _sys.path:
+        _sys.path.remove(_b)
+    _sys.path.append(_b)
+
 try:
     from bitstring import BitStream
 except ImportError:
@@ -219,11 +233,9 @@ if [ ! -f pdf2zh/kernel/PDFMathTranslate-next.git/pyproject.toml ]; then
 fi
 # 先装进独立 staging 目录再复制——直接 --target 到主 site-packages 会把
 # 共享依赖(如 tencentcloud-sdk)升级成新版本, 污染主程序运行环境。
-# bitstring 固定 3.x: 自带 BitStream, babeldoc 兼容, 各进程无需 shim。
 rm -rf dep_build/_precise_stage
 CONSTRAINT_FILE="$PWD/dep_build/_precise_constraints.txt"
 {
-    echo 'bitstring==3.1.11'
     # cryptography 49+ 不再发布 x86_64/universal2 macOS wheel,
     # 交叉构建 (CI) 下从源码编译 rust 必失败
     if [ "$PLATFORM" = "macos" ] && [ "$TARGET_ARCH" = "x86_64" ]; then

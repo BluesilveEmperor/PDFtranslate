@@ -123,9 +123,24 @@ def write_runtime_shim(runtime_dir: Path) -> None:
     site_dir = runtime_dir / "Lib" / "site-packages"
     site_dir.mkdir(parents=True, exist_ok=True)
     (site_dir / "precise_kernel.pth").write_text(
-        "import bitstream_shim\n", encoding="utf-8"
+        "../../../site-packages/pdf2zh/kernel/_precise_packages\nimport bitstream_shim\n",
+        encoding="utf-8",
     )
     (site_dir / "bitstream_shim.py").write_text(
+        "# 把捆绑目录垫底: PyStand 主进程依赖解析仍先命中主 site-packages\n"
+        "# (避免 tencentcloud 等被捆绑副本劫持), spawn 子进程又能看见 bitstring。\n"
+        "import os as _os\n"
+        "import sys as _sys\n"
+        "\n"
+        "_b = _os.path.normpath(_os.path.join(\n"
+        "    _os.path.dirname(__file__), '..', '..', '..',\n"
+        "    'site-packages', 'pdf2zh', 'kernel', '_precise_packages',\n"
+        "))\n"
+        "if _os.path.isdir(_b):\n"
+        "    if _b in _sys.path:\n"
+        "        _sys.path.remove(_b)\n"
+        "    _sys.path.append(_b)\n"
+        "\n"
         "try:\n"
         "    from bitstring import BitStream\n"
         "except ImportError:\n"
@@ -196,16 +211,12 @@ def main() -> None:
             )
         # 先装进独立 staging 目录再复制: 直接 --target 到主 site-packages
         # 会把共享依赖(tencentcloud-sdk 等)升级污染主程序。
-        # bitstring 固定 3.x: 自带 BitStream, babeldoc 兼容, 各进程免 shim。
         stage = DEP_DIR / "_precise_stage"
         if stage.exists():
             shutil.rmtree(stage)
-        constraints = DEP_DIR / "_precise_constraints.txt"
-        constraints.write_text("bitstring==3.1.11\n", encoding="utf-8")
         run([
             "uv", "pip", "install", "--python", py_exe,
             "--target", stage,
-            "-c", constraints,
             SUBMODULE,
         ])
         dest = BUILD_DIR / "site-packages" / "pdf2zh" / "kernel" / "_precise_packages"
