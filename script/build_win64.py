@@ -71,13 +71,31 @@ def run(cmd: list[str], **kw) -> None:
     subprocess.run([str(c) for c in cmd], check=True, **kw)
 
 
+def retire_dir(path: Path, label: str = "stale") -> Path:
+    """把大目录改名挪开而不是删除: 删除上万文件会被安全策略 fail-closed 拦截,
+    改名保留后由人工/后续清理, 不阻塞构建。"""
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    target = path.with_name(f"{path.name}_{label}_{stamp}")
+    n = 0
+    while target.exists():
+        n += 1
+        target = path.with_name(f"{path.name}_{label}_{stamp}_{n}")
+    path.rename(target)
+    print(f"  旧目录改名保留: {target.name}")
+    return target
+
+
 def clear_build(clean: bool) -> None:
-    """清理旧 build/: --clean 真删除, 默认改名保留备份。"""
+    """清理旧 build/: --clean 尝试真删除（失败则改名保留）, 默认改名保留备份。"""
     if not BUILD_DIR.exists():
         return
     if clean:
         print("彻底删除旧 build/ ...")
-        shutil.rmtree(BUILD_DIR)
+        try:
+            shutil.rmtree(BUILD_DIR)
+        except Exception as e:  # 安全策略可能直接拦截大目录删除
+            print(f"  删除失败({e.__class__.__name__}), 改为改名保留")
+            retire_dir(BUILD_DIR, "prev")
         return
     stamp = time.strftime("%Y%m%d_%H%M%S")
     backup = REPO_ROOT / f"build_prev_{stamp}"
@@ -172,7 +190,7 @@ def main() -> None:
         # bitstring 固定 4.3.0: 原生含 BitStream, babeldoc 兼容, 免 shim。
         stage = DEP_DIR / "_precise_stage"
         if stage.exists():
-            shutil.rmtree(stage)
+            retire_dir(stage, "stale")
         constraints = DEP_DIR / "_precise_constraints.txt"
         constraints.write_text("bitstring==4.3.0\n", encoding="utf-8")
         run([
@@ -182,7 +200,7 @@ def main() -> None:
         ])
         dest = BUILD_DIR / "site-packages" / "pdf2zh" / "kernel" / "_precise_packages"
         if dest.exists():
-            shutil.rmtree(dest)
+            retire_dir(dest, "stale")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(stage, dest)
 
