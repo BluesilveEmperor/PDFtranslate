@@ -11,6 +11,7 @@
 ## 功能特性
 
 - 📊 保留公式、图表、目录和批注
+- 📋 表格内容翻译（可选）：表格按单元格独立翻译，完整保留表格网格与表题版式，默认表格区域按版式保护不翻译
 - 🌐 支持多种语言和翻译服务（Google、DeepL、OpenAI、LongCat、Ollama 等）
 - 🤖 提供命令行工具和 Gradio Web 界面
 - ⚡ 支持 `--ultrafast` 模式加速纯文本 PDF 翻译
@@ -19,7 +20,7 @@
 
 ## 便携版（推荐，免安装）
 
-从 [Releases](https://github.com/BluesilveEmperor/PDFtranslate/releases) 下载对应平台产物（当前版本 v0.0.1）：
+从 [Releases](https://github.com/BluesilveEmperor/PDFtranslate/releases) 下载对应平台产物（当前版本 v2.0.2）：
 
 | 产物 | 平台 | 架构 |
 |---|---|---|
@@ -89,7 +90,7 @@ pdf2zh paper.pdf --ultrafast
 7. **开始翻译**：点击翻译按钮，等待进度完成。
 8. **获取结果**：在输出区下载 `Traned_single_*.pdf`（纯译文）与 `Traned_double_*.pdf`（双语对照）。
 
-「更多实验选项」折叠区可调整：线程数、跳过字体子集化、忽略缓存（强制重翻）、自定义公式字体正则（vfont）、自定义 Prompt（LLM 服务）、表格内容翻译（默认表格区域按版式保护不翻译，勾选后表格文字参与翻译）与翻译模式（fast / precise；precise 需要子模块或便携包内捆绑的 `_precise_packages`，不可用时仅显示 fast）。
+「更多实验选项」折叠区可调整：线程数、跳过字体子集化、忽略缓存（强制重翻）、自定义公式字体正则（vfont）、自定义 Prompt（LLM 服务）、表格内容翻译（默认表格区域按版式保护不翻译；勾选后表格按单元格独立翻译，完整保留网格与行列对齐）与翻译模式（fast / precise；precise 需要子模块或便携包内捆绑的 `_precise_packages`，不可用时仅显示 fast）。
 
 ### 命令行模式
 
@@ -311,6 +312,14 @@ ASSETS_ALLOW_DOWNLOAD=1 bash build.sh
 ### 译文缺失（已修复）
 
 原版 `vfont` 公式字体检测正则过宽，导致正文被误判为公式而跳过翻译。已收窄为 `CM(MI|SY|EX|BSY)` 并优化误报警告逻辑。
+
+### 表格翻译串列、版式错乱（已修复，v2.0.2）
+
+勾选"翻译表格内容"后，整张表的所有单元格被合并成一个大段落重新排版，译文串列、压线。现在对表格区域按词级几何分布做递归 XY 切割（不依赖表格线，三线表可用），每个单元格独立成段、原位翻译，完整保留网格。
+
+### 表题被切成错位碎片（已修复，v2.0.2）
+
+版式模型会对同一段表题同时输出多个高度重叠的检测框（如 `figure_caption` 与 `table_caption`），掩码按序填充互相覆盖，把表题劈成多个互相重叠的碎片段落。现已按 同类别或同为 caption 且 IoU≥0.55 合并为并集。
 
 ### babeldoc BitStream 兼容性
 

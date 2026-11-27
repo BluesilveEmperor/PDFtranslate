@@ -11,6 +11,7 @@ This is a personally maintained fork with the following enhancements: cross-plat
 ## Features
 
 - 📊 Preserves formulas, charts, tables of contents, and annotations
+- 📋 Optional table-content translation: tables are translated cell by cell, keeping the table grid and caption layout intact (table regions are layout-protected by default)
 - 🌐 Multiple languages and translation services (Google, DeepL, OpenAI, LongCat, Ollama, etc.)
 - 🤖 Both a CLI tool and a Gradio web interface
 - ⚡ `--ultrafast` mode for accelerating text-only PDF translation
@@ -19,7 +20,7 @@ This is a personally maintained fork with the following enhancements: cross-plat
 
 ## Portable Builds (Recommended, No Installation)
 
-Download the artifact for your platform from [Releases](https://github.com/BluesilveEmperor/PDFtranslate/releases) (current version: v0.0.1):
+Download the artifact for your platform from [Releases](https://github.com/BluesilveEmperor/PDFtranslate/releases) (current version: v2.0.2):
 
 | Artifact | Platform | Architecture |
 |---|---|---|
@@ -89,7 +90,7 @@ When translation finishes, `Traned_single_paper.pdf` (translation only) and `Tra
 7. **Translate**: click the translate button and wait for completion.
 8. **Get results**: download `Traned_single_*.pdf` (translation only) and `Traned_double_*.pdf` (bilingual) from the output area.
 
-The *More experimental options* accordion lets you adjust: thread count, skip font subsetting, ignore cache (force retranslation), custom formula-font regex (vfont), custom prompt (LLM services), translate table content (tables are layout-protected by default; enabling this translates text inside tables), and translation mode (fast / precise; precise requires the submodule or the bundled `_precise_packages` in portable builds — unavailable kernels are hidden from the dropdown).
+The *More experimental options* accordion lets you adjust: thread count, skip font subsetting, ignore cache (force retranslation), custom formula-font regex (vfont), custom prompt (LLM services), translate table content (tables are layout-protected by default; enabling this translates each table cell independently while preserving the grid and row/column alignment), and translation mode (fast / precise; precise requires the submodule or the bundled `_precise_packages` in portable builds — unavailable kernels are hidden from the dropdown).
 
 ### CLI Mode
 
@@ -311,6 +312,14 @@ The upstream version produced interwoven solid black lines on some PDFs. Root ca
 ### Missing translations (fixed)
 
 The upstream `vfont` formula-font detection regex was too broad, causing body text to be misclassified as formulas and skipped. It has been narrowed to `CM(MI|SY|EX|BSY)`, with improved false-warning logic.
+
+### Table translation produced column-crossing soup (fixed in v2.0.2)
+
+With "translate table content" enabled, all cells of a table were merged into one giant paragraph and reflowed, crossing column boundaries. Table regions are now subdivided into cells via recursive XY-cut on word bounding boxes (geometry only — works on ruleless booktabs tables); each cell is translated in place, keeping the grid intact.
+
+### Captions shredded into misaligned fragments (fixed in v2.0.2)
+
+The layout model emits multiple highly overlapping boxes for the same caption (e.g. `figure_caption` plus `table_caption`); sequential mask filling let them overwrite each other and split the caption into overlapping fragment paragraphs. Overlapping boxes of the same class (or both caption classes) with IoU ≥ 0.55 are now merged into their union.
 
 ### babeldoc BitStream compatibility
 
