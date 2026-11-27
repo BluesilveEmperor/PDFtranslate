@@ -27,7 +27,7 @@ from pdfminer.pdfexceptions import PDFValueError
 from pdfminer.pdfinterp import PDFResourceManager
 from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
-from pymupdf import Document, Font
+from pymupdf import Document, Font, Page
 
 from pdf2zh.converter import TranslateConverter
 
@@ -64,6 +64,128 @@ noto_list = [
     "ur",  # Urdu
     "uk",  # Ukrainian
 ]
+
+
+def _xy_cut_cells(
+    rects: List[tuple[float, float, float, float]],
+    clip: tuple[float, float, float, float],
+    axis: int = 0,
+    depth: int = 0,
+    x_gap: float = 5.0,
+    y_gap: float = 4.5,
+) -> List[tuple[float, float, float, float]]:
+    """对矩形集合做递归 XY 切割，返回叶子单元格矩形。
+
+    rects/clip 均为页面坐标系 (x0, y0, x1, y1)（y 向下）。
+    axis=0 沿 x 轴切（切分列），axis=1 沿 y 轴切（切分行）。
+    间隔小于阈值的投影区间会被合并，因此单元格内的词间距、
+    换行行距不会触发切割，而列间距/行间距会触发切割。
+    """
+    if depth > 8:
+        return [clip]
+    a = axis  # (x0, x1) 或 (y0, y1) 在 tuple 中的起始下标
+    gap = x_gap if axis == 0 else y_gap
+    intervals = sorted((r[a], r[a + 2]) for r in rects)
+    merged: list[list[float]] = []
+    for s, e in intervals:
+        if merged and s - merged[-1][1] < gap:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    if len(merged) <= 1:
+        return [clip]
+    lo, hi = clip[a], clip[a + 2]
+    cuts = [lo] + [
+        (merged[k][1] + merged[k + 1][0]) / 2 for k in range(len(merged) - 1)
+    ] + [hi]
+    result: List[tuple[float, float, float, float]] = []
+    for k in range(len(cuts) - 1):
+        if axis == 0:
+            sub = (cuts[k], clip[1], cuts[k + 1], clip[3])
+        else:
+            sub = (clip[0], cuts[k], clip[2], cuts[k + 1])
+        sub_rects = [
+            r for r in rects if sub[a] <= (r[a] + r[a + 2]) / 2 <= sub[a + 2]
+        ]
+        if not sub_rects:
+            continue
+        result.extend(
+            _xy_cut_cells(sub_rects, sub, 1 - axis, depth + 1, x_gap, y_gap)
+        )
+    return result or [clip]
+
+
+def _split_table_cells(
+    page: Page,
+    region: tuple[float, float, float, float],
+    x_gap: float = 5.0,
+    y_gap: float = 4.5,
+) -> List[tuple[float, float, float, float]]:
+    """把表格区域细分为单元格矩形（页面坐标系，y 向下）。
+
+    仅依赖词的几何分布做递归 XY 切割，不依赖表格线，
+    因此可以处理三线表等没有竖线的表格。
+    切割失败时返回 []，调用方应回退为整表处理。
+    """
+    x0r, y0r, x1r, y1r = region
+    words = page.get_text("words") or []
+    rects = [
+        (w[0], w[1], w[2], w[3])
+        for w in words
+        if x0r <= (w[0] + w[2]) / 2 <= x1r and y0r <= (w[1] + w[3]) / 2 <= y1r
+    ]
+    if not rects:
+        return []
+    return _xy_cut_cells(rects, (x0r, y0r, x1r, y1r), 0, 0, x_gap, y_gap)
+
+
+def _bbox_iou(a, b) -> float:
+    """计算两个 (x0, y0, x1, y1) 矩形的交并比。"""
+    ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
+    ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])
+    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return inter / (area_a + area_b - inter)
+
+
+def _dedup_layout_boxes(page_layout) -> List[tuple[str, list[float]]]:
+    """合并版式模型输出的高度重叠检测框，返回 (类别名, bbox) 列表。
+
+    模型会对同一区域输出多个框（如同一段表题同时命中 figure_caption 与
+    table_caption，或同一个表格输出两个 table 框）。掩码按序填充时这些
+    框会互相覆盖，把一段文字切成多个错位段落。这里把 同类别 或 同为
+    caption 且 IoU>=0.55 的框合并为并集。
+    """
+    boxes: List[tuple[str, list[float]]] = []
+    for d in page_layout.boxes:
+        cls_name = page_layout.names[int(d.cls)]
+        bb = d.xyxy.squeeze().tolist()
+        target = None
+        for k, (mname, mb) in enumerate(boxes):
+            if mname == cls_name or (
+                mname.endswith("caption") and cls_name.endswith("caption")
+            ):
+                if _bbox_iou(bb, mb) >= 0.55:
+                    target = k
+                    break
+        if target is None:
+            boxes.append((cls_name, bb))
+        else:
+            mb = boxes[target][1]
+            boxes[target] = (
+                boxes[target][0],
+                [
+                    min(mb[0], bb[0]),
+                    min(mb[1], bb[1]),
+                    max(mb[2], bb[2]),
+                    max(mb[3], bb[3]),
+                ],
+            )
+    return boxes
 
 
 def check_files(files: List[str]) -> List[str]:
@@ -231,24 +353,43 @@ def translate_patch(
                 box = np.ones((pix.height, pix.width))
                 h, w = box.shape
                 vcls = [c.strip() for c in reserved_classes.split(",") if c.strip()]
-                for i, d in enumerate(page_layout.boxes):
-                    if page_layout.names[int(d.cls)] not in vcls:
-                        x0, y0, x1, y1 = d.xyxy.squeeze()
+                # table 不在保护类中 = 用户要求翻译表格内容。
+                # 此时把每个表格区域细分为单元格，一个单元格一个段落，
+                # 避免整表合并成一个大段落导致译文串列、版式错乱。
+                translate_table = "table" not in vcls
+                boxes = _dedup_layout_boxes(page_layout)
+                next_cls = len(boxes) + 2
+                for i, (cls_name, bb) in enumerate(boxes):
+                    if cls_name not in vcls:
+                        bx0, by0, bx1, by1 = bb
                         x0, y0, x1, y1 = (
-                            np.clip(int(x0 - 1), 0, w - 1),
-                            np.clip(int(h - y1 - 1), 0, h - 1),
-                            np.clip(int(x1 + 1), 0, w - 1),
-                            np.clip(int(h - y0 + 1), 0, h - 1),
+                            np.clip(int(bx0 - 1), 0, w - 1),
+                            np.clip(int(h - by1 - 1), 0, h - 1),
+                            np.clip(int(bx1 + 1), 0, w - 1),
+                            np.clip(int(h - by0 + 1), 0, h - 1),
                         )
                         box[y0:y1, x0:x1] = i + 2
-                for i, d in enumerate(page_layout.boxes):
-                    if page_layout.names[int(d.cls)] in vcls:
-                        x0, y0, x1, y1 = d.xyxy.squeeze()
+                        if translate_table and cls_name == "table":
+                            cells = _split_table_cells(
+                                doc_zh[page.pageno],
+                                (bx0, by0, bx1, by1),
+                            )
+                            for cx0, cy0, cx1, cy1 in cells:
+                                rx0 = np.clip(int(cx0 - 1), 0, w - 1)
+                                ry0 = np.clip(int(h - cy1 - 1), 0, h - 1)
+                                rx1 = np.clip(int(cx1 + 1), 0, w - 1)
+                                ry1 = np.clip(int(h - cy0 + 1), 0, h - 1)
+                                if ry1 > ry0 and rx1 > rx0:
+                                    box[ry0:ry1, rx0:rx1] = next_cls
+                                    next_cls += 1
+                for cls_name, bb in boxes:
+                    if cls_name in vcls:
+                        bx0, by0, bx1, by1 = bb
                         x0, y0, x1, y1 = (
-                            np.clip(int(x0 - 1), 0, w - 1),
-                            np.clip(int(h - y1 - 1), 0, h - 1),
-                            np.clip(int(x1 + 1), 0, w - 1),
-                            np.clip(int(h - y0 + 1), 0, h - 1),
+                            np.clip(int(bx0 - 1), 0, w - 1),
+                            np.clip(int(h - by1 - 1), 0, h - 1),
+                            np.clip(int(bx1 + 1), 0, w - 1),
+                            np.clip(int(h - by0 + 1), 0, h - 1),
                         )
                         box[y0:y1, x0:x1] = 0
                 layout[page.pageno] = box
