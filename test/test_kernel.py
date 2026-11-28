@@ -126,10 +126,11 @@ class TestLegacyKernelVersion(unittest.TestCase):
         self.assertEqual(k.name, "fast")
 
     def test_version(self):
+        from pdf2zh import __version__
         from pdf2zh.kernel.legacy import LegacyKernel
 
         k = LegacyKernel()
-        self.assertEqual(k.version, "2.0.0")
+        self.assertEqual(k.version, __version__)
 
     def test_is_available(self):
         from pdf2zh.kernel.legacy import LegacyKernel

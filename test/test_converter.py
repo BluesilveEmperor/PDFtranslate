@@ -2,7 +2,11 @@ import unittest
 from unittest.mock import Mock, patch, MagicMock
 from pdfminer.layout import LTPage, LTChar, LTLine
 from pdfminer.pdfinterp import PDFResourceManager
-from pdf2zh.converter import PDFConverterEx, TranslateConverter
+from pdf2zh.converter import (
+    PDFConverterEx,
+    TranslateConverter,
+    get_cjk_size_scale,
+)
 
 
 class TestPDFConverterEx(unittest.TestCase):
@@ -104,6 +108,104 @@ class TestTranslateConverter(unittest.TestCase):
                 lang_out="zh",
                 service="InvalidService",
             )
+
+
+class TestCjkSizeScale(unittest.TestCase):
+    """CJK 译文字号放大逻辑测试"""
+
+    def test_scale_table(self):
+        self.assertEqual(get_cjk_size_scale("zh"), 1.2)
+        self.assertEqual(get_cjk_size_scale("zh-cn"), 1.2)
+        self.assertEqual(get_cjk_size_scale("ZH-CN"), 1.2)
+        self.assertEqual(get_cjk_size_scale("zh-tw"), 1.2)
+        self.assertEqual(get_cjk_size_scale("ja"), 1.1)
+        self.assertEqual(get_cjk_size_scale("ko"), 1.1)
+        self.assertEqual(get_cjk_size_scale("en"), 1.0)
+        self.assertEqual(get_cjk_size_scale(""), 1.0)
+        self.assertEqual(get_cjk_size_scale(None), 1.0)
+
+    def _make_converter(self, lang_out="zh", translated="中文译文"):
+        converter = TranslateConverter(
+            self.rsrcmgr,
+            layout={1: self.layout_mock},
+            lang_in="en",
+            lang_out=lang_out,
+            service="google",
+        )
+        converter.translator = Mock()
+        converter.translator.translate.return_value = translated
+        converter.translator.lang_out = lang_out
+        converter.noto_name = "noto"
+        converter.noto = Mock()
+        converter.noto.char_lengths.side_effect = lambda ch, sz: [sz]
+        converter.noto.has_glyph.return_value = 1
+        converter.thread = 1
+        return converter
+
+    def _add_line(self, ltpage, text, x, y, size=10.0):
+        for i, ch in enumerate(text):
+            font = Mock()
+            font.fontname = "Times-Roman"
+            font.is_vertical.return_value = False
+            font.get_descent.return_value = 0.0
+            ltpage.add(
+                LTChar(
+                    matrix=(1, 0, 0, 1, x + i * 5.5, y),
+                    font=font,
+                    fontsize=size,
+                    scaling=1.0,
+                    rise=0,
+                    text=ch,
+                    textwidth=0.55,
+                    textdisp=(0.0, 0.0),
+                    ncs=Mock(),
+                    graphicstate=Mock(),
+                )
+            )
+
+    def setUp(self):
+        self.rsrcmgr = PDFResourceManager()
+        layout_mock = MagicMock()
+        layout_mock.shape = (500, 500)
+        layout_mock.__getitem__.return_value = 1
+        self.layout_mock = layout_mock
+
+    def test_multiline_paragraph_scaled(self):
+        # 多行段落（brk=True）→ 译文字号放大 1.2 倍：10pt → 12pt
+        ltpage = LTPage(1, (0, 0, 500, 500))
+        self._add_line(ltpage, "Hello world", 100, 100)
+        self._add_line(ltpage, "second line", 100, 85)
+        converter = self._make_converter()
+        ops = converter.receive_layout(ltpage)
+        self.assertIn("/noto 12.000000 Tf", ops)
+        self.assertNotIn("/noto 10.000000 Tf", ops)
+
+    def test_single_line_short_scaled(self):
+        # 单行短段落且放大后不超宽 → 同样放大
+        ltpage = LTPage(1, (0, 0, 500, 500))
+        self._add_line(ltpage, "Short title", 100, 100)
+        converter = self._make_converter(translated="中文")
+        ops = converter.receive_layout(ltpage)
+        self.assertIn("/noto 12.000000 Tf", ops)
+
+    def test_single_line_overflow_kept(self):
+        # 单行段落放大后超宽（模拟表格单元格溢出）→ 保持原字号
+        ltpage = LTPage(1, (0, 0, 500, 500))
+        # 行宽 5.5*20=110pt；译文 12 字 × 10pt = 120pt > 110pt，放大后更宽
+        self._add_line(ltpage, "A cell of the table", 100, 100)
+        converter = self._make_converter(translated="这个中文单元格比较长")
+        ops = converter.receive_layout(ltpage)
+        self.assertIn("/noto 10.000000 Tf", ops)
+        self.assertNotIn("/noto 12.000000 Tf", ops)
+
+    def test_latin_output_not_scaled(self):
+        # 非中文目标语言不放大
+        ltpage = LTPage(1, (0, 0, 500, 500))
+        self._add_line(ltpage, "Hello world", 100, 100)
+        self._add_line(ltpage, "second line", 100, 85)
+        converter = self._make_converter(lang_out="en", translated="hola mundo")
+        ops = converter.receive_layout(ltpage)
+        self.assertNotIn("/noto 12.000000 Tf", ops)
 
 
 if __name__ == "__main__":

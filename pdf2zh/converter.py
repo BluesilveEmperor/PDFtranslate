@@ -159,6 +159,23 @@ class Paragraph:
 
 
 # fmt: off
+# CJK 译文放大系数：中日韩字形在 em 框内占比高、笔画密集，与英文同字号时
+# 阅读观感偏小（尤以英文论文 9-10pt 密排为甚），按目标语言放大译文字号
+LANG_SIZE_SCALE_MAP = {
+    "zh-cn": 1.2, "zh-tw": 1.2, "zh-hans": 1.2, "zh-hant": 1.2, "zh": 1.2,
+    "ja": 1.1, "ko": 1.1,
+}
+
+
+def get_cjk_size_scale(lang_out: str) -> float:
+    """按目标语言返回译文字号放大系数（非 CJK 目标语言返回 1.0）"""
+    lang_out = (lang_out or "").lower()
+    return next(
+        (v for k, v in LANG_SIZE_SCALE_MAP.items() if lang_out.startswith(k)),
+        1.0,
+    )
+
+
 class TranslateConverter(PDFConverterEx):
     def __init__(
         self,
@@ -475,6 +492,7 @@ class TranslateConverter(PDFConverterEx):
             "ja": 1.1, "ko": 1.2, "en": 1.2, "ar": 1.0, "ru": 0.8, "uk": 0.8, "ta": 0.8
         }
         default_line_height = LANG_LINEHEIGHT_MAP.get(self.translator.lang_out.lower(), 1.1) # 小语种默认1.1
+        cjk_size_scale = get_cjk_size_scale(self.translator.lang_out) # CJK 译文字号放大系数
         _x, _y = 0, 0
         ops_list = []
 
@@ -485,6 +503,23 @@ class TranslateConverter(PDFConverterEx):
             # 显式设置描边颜色为黑（0 G），避免继承当前图形状态导致线条变色/消失
             return f"ET q 0 G 1 0 0 1 {x:f} {y:f} cm [] 0 d 0 J {linewidth:f} w 0 0 m {xlen:f} {ylen:f} l S Q BT "
 
+        def est_text_width(text: str, sz: float) -> float:
+            # 估算译文排版总宽度：普通字符按 noto 度量（对拉丁字符略保守），
+            # 公式段 {vn} 按原宽度计入
+            total, i = 0.0, 0
+            while i < len(text):
+                m = re.match(r"\{\s*v([\d\s]+)\}", text[i:], re.IGNORECASE)
+                if m:
+                    try:
+                        total += vlen[int(m.group(1).replace(" ", ""))]
+                    except Exception:
+                        pass
+                    i += len(m.group(0))
+                else:
+                    total += self.noto.char_lengths(text[i], sz)[0]
+                    i += 1
+            return total
+
         for id, new in enumerate(news):
             new = add_cjk_latin_spacing(new)
             x: float = pstk[id].x                       # 段落初始横坐标
@@ -494,6 +529,15 @@ class TranslateConverter(PDFConverterEx):
             height: float = pstk[id].y1 - pstk[id].y0   # 段落高度
             size: float = pstk[id].size                 # 段落字体大小
             brk: bool = pstk[id].brk                    # 段落换行标记
+            if cjk_size_scale > 1.0:
+                # 放大 CJK 译文字号；单行段落（brk=False，如表格单元格、短标签）
+                # 放大可能超宽溢出到相邻区域，仅当放大前后都不超宽时才放大
+                avail = x1 - x + 0.1 * size
+                if brk or (
+                    est_text_width(new, size) <= avail
+                    and est_text_width(new, size * cjk_size_scale) <= avail
+                ):
+                    size *= cjk_size_scale
             cstk: str = ""                              # 当前文字栈
             fcur: str = None                            # 当前字体 ID
             lidx = 0                                    # 记录换行次数
