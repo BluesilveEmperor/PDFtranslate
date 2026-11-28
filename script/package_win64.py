@@ -14,7 +14,6 @@
     必需: build/pdf2zh.exe、_pystand_static.int、runtime/python.exe、
           build/site-packages/sitecustomize.py、offline_assets_*.zip
     可选 precise 捆绑组（BUNDLE_PRECISE=0 构建的轻量包则不要求）:
-          runtime/Lib/site-packages/{precise_kernel.pth,bitstream_shim.py}
           site-packages/pdf2zh/kernel/_precise_packages/pdf2zh_next
     捆绑存在 -> dist/pdf2zh-win64-v<版本>.zip
     未捆绑   -> dist/pdf2zh-win64-v<版本>-fast.zip（仅 fast 模式）
@@ -46,10 +45,10 @@ REQUIRED = [
 REQUIRED_GLOB = ["offline_assets_*.zip"]
 
 # precise 捆绑组：目录存在时这些条目必须齐全；目录不存在则为轻量包（fast-only）
+# 注: runtime site/pth shim (precise_kernel.pth/bitstream_shim.py) 已废弃，
+#     bitstring 固定 4.3.0 原生含 BitStream，spawn 子进程从 worker 继承 sys.path
 PRECISE_DIR = "site-packages/pdf2zh/kernel/_precise_packages"
 PRECISE_GROUP = [
-    "runtime/Lib/site-packages/precise_kernel.pth",
-    "runtime/Lib/site-packages/bitstream_shim.py",
     PRECISE_DIR + "/pdf2zh_next",
 ]
 
